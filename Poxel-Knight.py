@@ -1,35 +1,65 @@
 import pygame
+import os
 
 # ---------- CONFIG ----------
-SCREEN_W, SCREEN_H = 800, 600
+SCREEN_W, SCREEN_H = 1200, 700
 FPS = 60
 
 GRAVITY = 0.5
 MOVE_SPEED = 6
-JUMP_SPEED = -8
+JUMP_SPEED = -9
 MAX_JUMP_TIME = 10
 
 DASH_SPEED = 12
 DASH_TIME = 10
-DASH_COOLDOWN = 20
+DASH_COOLDOWN = 40
 ATTACK_TIME = 10
+
+# ---------- LOAD ASSETS ----------
+def load_animation_images(path, scale):
+    frames = []
+    for filename in sorted(os.listdir(path)):
+        img = pygame.image.load(os.path.join(path, filename)).convert_alpha()
+        img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
+        frames.append(img)
+    return frames
 
 
 # ---------- BASE OBJECT CLASS ----------
 class GameObject:
-    def __init__(self, rect, color=(255,255,255)):
+    def __init__(self, rect, color=(255,255,255), visible=True):
         self.rect = rect
         self.color = color
+        self.visible = visible
 
     def draw(self, surface):
-        pygame.draw.rect(surface, self.color, self.rect)
+        if self.visible:
+            pygame.draw.rect(surface, self.color, self.rect)
 
 
-# ---------- PLAYER ----------
-class Player(GameObject):
-    def __init__(self, x, y, w=30, h=30, color=(0, 200, 255)):
-        super().__init__(pygame.Rect(x, y, w, h), color)
-        self.facing = 1
+# ---------- PLAYER (with animation + physics) ----------
+class Player(pygame.sprite.Sprite):
+    def __init__(self, x, y, scale=3, speed=MOVE_SPEED):
+        super().__init__()
+        self.alive = True
+        self.speed = speed
+        self.direction = 1
+        self.flip = False
+
+        # animations
+        self.animation_list = []
+        self.frame_index = 0
+        self.action = 0
+        self.update_time = pygame.time.get_ticks()
+
+        # load animations
+        idle = load_animation_images("player/Idle", scale)
+        run = load_animation_images("player/Run", scale)
+        self.animation_list = [idle, run]
+
+        self.image = self.animation_list[self.action][self.frame_index]
+        self.rect = self.image.get_rect()
+        self.rect.center = (x, y)
 
         # physics
         self.vel_x = 0
@@ -57,10 +87,12 @@ class Player(GameObject):
         if not self.dashing and not self.attacking:
             if keys[pygame.K_a]:
                 self.vel_x = -MOVE_SPEED
-                self.facing = -1
+                self.direction = -1
+                self.flip = True
             elif keys[pygame.K_d]:
                 self.vel_x = MOVE_SPEED
-                self.facing = 1
+                self.direction = 1
+                self.flip = False
             else:
                 self.vel_x = 0
 
@@ -94,7 +126,7 @@ class Player(GameObject):
 
         # Dash logic
         if self.dashing:
-            self.vel_x = DASH_SPEED * self.facing
+            self.vel_x = DASH_SPEED * self.direction
             self.vel_y = 0
             self.dash_timer -= 1
             if self.dash_timer <= 0:
@@ -110,8 +142,6 @@ class Player(GameObject):
         self.on_ground = False
 
         for obj in objects:
-            if obj is self:
-                continue
             if self.rect.colliderect(obj.rect):
                 # vertical collision
                 if self.vel_y > 0 and self.rect.bottom > obj.rect.top and self.rect.top < obj.rect.top:
@@ -130,48 +160,47 @@ class Player(GameObject):
                     self.rect.left = obj.rect.right
                     self.vel_x = 0
 
-        # --- SCREEN WRAP (horizontal + vertical) ---
-        '''
-        if self.rect.right < 0:
-            self.rect.left = SCREEN_W
-        elif self.rect.left > SCREEN_W:
-            self.rect.right = 0
+        # update animation state
+        if self.vel_x != 0:
+            self.update_action(1)  # running
+        else:
+            self.update_action(0)  # idle
+        self.update_animation()
 
-        if self.rect.bottom < 0:
-            self.rect.top = SCREEN_H
-        elif self.rect.top > SCREEN_H:
-            self.rect.bottom = 0
-            '''
+    # --- Animations ---
+    def update_animation(self):
+        ANIMATION_COOLDOWN = 120
+        self.image = self.animation_list[self.action][self.frame_index]
+        if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
+            self.update_time = pygame.time.get_ticks()
+            self.frame_index += 1
+        if self.frame_index >= len(self.animation_list[self.action]):
+            self.frame_index = 0
 
+    def update_action(self, new_action):
+        if new_action != self.action:
+            self.action = new_action
+            self.frame_index = 0
+            self.update_time = pygame.time.get_ticks()
 
-    # --- Draw ---
     def draw(self, surface):
-        pygame.draw.rect(surface, self.color, self.rect)
-
-        # Attack hitbox
-        if self.attacking:
-            attack_rect = pygame.Rect(
-                self.rect.right if self.facing > 0 else self.rect.left - 20,
-                self.rect.top + 5, 20, self.rect.height - 10
-            )
-            pygame.draw.rect(surface, (255, 255, 0), attack_rect)
+        surface.blit(pygame.transform.flip(self.image, self.flip, False), self.rect)
 
 
 # ---------- MAIN ----------
 def main():
     pygame.init()
-    print("Pygame initialized successfully!")
-
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Hollow")
+    pygame.display.set_caption("Hollow Knight Clone")
     clock = pygame.time.Clock()
 
+    # setup objects
     objects = []
     player = Player(200, 450)
-    objects.append(player)
-
-    # Platforms
-    objects.append(GameObject(pygame.Rect(-1500, 550, 10000000, 100), (150, 150, 150)))
+    objects.append(GameObject(pygame.Rect(10, 675, SCREEN_W - 20, 40), (50, 50, 50)))  # ground
+    objects.append(GameObject(pygame.Rect(40, 525, 200, 20), (50, 50, 50)))
+    objects.append(GameObject(pygame.Rect(960, 525, 200, 20), (50, 50, 50)))
+    objects.append(GameObject(pygame.Rect(390, 370, 425, 20), (50, 50, 50)))
 
     running = True
     while running:
@@ -183,11 +212,14 @@ def main():
         keys = pygame.key.get_pressed()
         mouse = pygame.mouse.get_pressed()
 
+        # update
         player.update(keys, mouse, objects)
 
-        screen.fill((50,50,100))
+        # draw
+        screen.fill((30, 30, 30))
         for obj in objects:
             obj.draw(screen)
+        player.draw(screen)
 
         pygame.display.flip()
 
@@ -196,5 +228,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
