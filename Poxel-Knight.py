@@ -1,17 +1,17 @@
 import pygame
 
 # ---------- CONFIG ----------
-SCREEN_W, SCREEN_H = 800, 600
+SCREEN_W, SCREEN_H = 1200, 700
 FPS = 60
 
 GRAVITY = 0.5
 MOVE_SPEED = 6
-JUMP_SPEED = -8
+JUMP_SPEED = -9
 MAX_JUMP_TIME = 10
 
 DASH_SPEED = 12
 DASH_TIME = 10
-DASH_COOLDOWN = 20
+DASH_COOLDOWN = 40
 ATTACK_TIME = 10
 
 
@@ -151,8 +151,8 @@ class Player(GameObject):
         # Attack hitbox
         if self.attacking:
             attack_rect = pygame.Rect(
-                self.rect.right if self.facing > 0 else self.rect.left - 20,
-                self.rect.top + 5, 20, self.rect.height - 10
+                self.rect.right if self.facing > 0 else self.rect.left - 50,
+                self.rect.top + 5, 50, self.rect.height - 10
             )
             pygame.draw.rect(surface, (255, 255, 0), attack_rect)
 
@@ -170,8 +170,23 @@ def main():
     player = Player(200, 450)
     objects.append(player)
 
+
+     # Visible border walls
+    objects.append(GameObject(pygame.Rect(0, 0, 10, SCREEN_H), (0, 0, 0)))           # Left
+    objects.append(GameObject(pygame.Rect(SCREEN_W-10, 0, 10, SCREEN_H), (0, 0, 0))) # Right
+    objects.append(GameObject(pygame.Rect(0, 0, SCREEN_W, 10), (0, 0, 0)))           # Top
+    objects.append(GameObject(pygame.Rect(0, SCREEN_H-10, SCREEN_W, 10), (0, 0, 0))) # Bottom
+
+
     # Platforms
-    objects.append(GameObject(pygame.Rect(-1500, 550, 10000000, 100), (150, 150, 150)))
+    objects.append(GameObject(pygame.Rect(10, 675, SCREEN_W - 20, 40), (29, 41, 87)))
+    objects.append(GameObject(pygame.Rect(40, 525, 200, 20), (29, 41, 87)))
+    objects.append(GameObject(pygame.Rect(960, 525, 200, 20), (29, 41, 87)))
+    objects.append(GameObject(pygame.Rect(390, 370, 425, 20), (29, 41, 87)))
+
+
+
+
 
     running = True
     while running:
@@ -185,7 +200,7 @@ def main():
 
         player.update(keys, mouse, objects)
 
-        screen.fill((50,50,100))
+        screen.fill((87,102,184))
         for obj in objects:
             obj.draw(screen)
 
@@ -196,5 +211,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
