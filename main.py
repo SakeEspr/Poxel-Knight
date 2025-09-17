@@ -48,12 +48,13 @@ class Player(pygame.sprite.Sprite):
         self.dash_cooldown = 0
 
         # Animations
+        self.attacking = False
         self.animation_list = []
         self.frame_index = 0
         self.action = 0
         self.update_time = pygame.time.get_ticks()
 
-        animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash']
+        animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack']
         for animation in animation_types:
             temp_list = []
             num_of_frames = len(os.listdir(f'img/{self.char_type}/{animation}'))
@@ -67,13 +68,18 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
 
-    def move(self, moving_left, moving_right):
+    def move(self, moving_left, moving_right, attacking):
         dx = 0
         dy = 0
 
         mouse = pygame.mouse.get_pressed()
+        
+		# Attack input
+        if mouse[1] and not self.dashing:
+            self.attacking = True
+            self.update_action(5)
 
-        # --- DASH INPUT (Right Mouse Button / M2) ---
+        # Dash input
         if mouse[2] and not self.dashing and self.dash_cooldown == 0:
             self.dashing = True
             self.dash_timer = DASH_TIME
