@@ -1,7 +1,7 @@
 import pygame
 import os
 
-
+#hi
 
 
 pygame.init()
@@ -183,7 +183,7 @@ while run:
             player.update_action(1)  # Run
         else:
             player.update_action(0)  # Idle
-        player.move(moving_left, moving_right)
+        player.move(moving_left, moving_right, True)
 
     # Event handling
     for event in pygame.event.get():
