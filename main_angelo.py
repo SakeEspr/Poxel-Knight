@@ -1,16 +1,15 @@
 import pygame
 import os
 
-#hi
 
 
 pygame.init()
 
 # ---------- CONFIG ----------
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = int(SCREEN_WIDTH * 0.8)
+SCREEN_WIDTH = 1200
+SCREEN_HEIGHT = 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption('Knight')
+pygame.display.set_caption('Poxel')
 
 FPS = 60
 clock = pygame.time.Clock()
@@ -21,15 +20,45 @@ DASH_SPEED = 12
 DASH_TIME = 10
 DASH_COOLDOWN = 40
 
-BG = (255, 200, 200)
-RED = (255, 0, 0)
+
+BROWN = (139, 69, 19)  # ADD: Color for platforms
+
+# Load background image
+Back = pygame.image.load('img/BG/Background(1).png')
+Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
 
 moving_left = False
 moving_right = False
 
+# ADD: PLATFORM CLASS ----------
+class Platform(pygame.sprite.Sprite):
+    def __init__(self, x, y, width, height, invisible=False):
+        super().__init__()
+        self.image = pygame.Surface((width, height))
+        if invisible:
+            self.image.set_alpha(0)
+            self.image.fill((0, 0, 0))
+        self.rect = pygame.Rect(x, y, width, height)
+
+platform_group = pygame.sprite.Group()
+
+# ADD: Define your platforms (x, y, width, height)
+platforms = [
+    (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
+    (300, 600, 200, 20),             # Platform 1
+    (600, 500, 150, 20),             # Platform 2  
+    (200, 400, 120, 20),             # Platform 3
+    (800, 350, 180, 20),             # Platform 4
+]
+
+# ADD: Create platform sprites
+for platform_data in platforms:
+    platform = Platform(*platform_data)
+    platform_group.add(platform)
+
 def draw_bg():
-    screen.fill(BG)
-    pygame.draw.line(screen, RED, (0, 300), (SCREEN_WIDTH, 300))
+    screen.blit(Back, (0, 0))  # Draw the background image
+    platform_group.draw(screen)  # ADD: Draw all platforms
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -77,7 +106,7 @@ class Player(pygame.sprite.Sprite):
 
         mouse = pygame.mouse.get_pressed()
         
-		# Attack input
+        # Attack input
         if mouse[1] and not self.dashing:
             self.attacking = True
             self.update_action(5)
@@ -125,14 +154,39 @@ class Player(pygame.sprite.Sprite):
         if self.dash_cooldown > 0:
             self.dash_cooldown -= 1
 
-        # Floor collision
-        if self.rect.bottom + dy > 300:
-            dy = 300 - self.rect.bottom
-            self.in_air = False
-
-        # Update position
+        # REPLACE: Old floor collision with platform collision
+        # --- PLATFORM COLLISION ---
+        # Move horizontally first
         self.rect.x += dx
+        
+        # Check for horizontal collisions
+        for platform in platform_group:
+            if self.rect.colliderect(platform.rect):
+                if dx > 0:  # Moving right
+                    self.rect.right = platform.rect.left
+                elif dx < 0:  # Moving left
+                    self.rect.left = platform.rect.right
+
+        # Move vertically
         self.rect.y += dy
+        self.in_air = True
+        
+        # Check for vertical collisions
+        for platform in platform_group:
+            if self.rect.colliderect(platform.rect):
+                if self.vel_y > 0:  # Falling down
+                    self.rect.bottom = platform.rect.top
+                    self.vel_y = 0
+                    self.in_air = False
+                elif self.vel_y < 0:  # Jumping up
+                    self.rect.top = platform.rect.bottom
+                    self.vel_y = 0
+
+        # Keep player on screen
+        if self.rect.left < 0:
+            self.rect.left = 0
+        elif self.rect.right > SCREEN_WIDTH:
+            self.rect.right = SCREEN_WIDTH
 
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
