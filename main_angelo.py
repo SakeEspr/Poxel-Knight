@@ -24,7 +24,7 @@ DASH_COOLDOWN = 40
 BROWN = (139, 69, 19)  # ADD: Color for platforms
 
 # Load background image
-Back = pygame.image.load('img/BG/Background(1).png')
+Back = pygame.image.load('img/BG/New_BG.png')
 Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
 
 moving_left = False
@@ -45,10 +45,10 @@ platform_group = pygame.sprite.Group()
 # ADD: Define your platforms (x, y, width, height)
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
-    (300, 600, 200, 20),             # Platform 1
-    (600, 500, 150, 20),             # Platform 2  
-    (200, 400, 120, 20),             # Platform 3
-    (800, 350, 180, 20),             # Platform 4
+    (0, 530, 300, 20),         # Platform 1
+    (900, 530, 300, 20),
+    (280, 410, 200, 20),
+    (720, 410, 200, 20)
 ]
 
 # ADD: Create platform sprites
