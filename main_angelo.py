@@ -46,9 +46,7 @@ platform_group = pygame.sprite.Group()
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
     (0, 530, 300, 20),         # Platform 1
-    (900, 530, 300, 20),
-    (280, 410, 200, 20),
-    (720, 410, 200, 20)
+    (900, 530, 300, 20)
 ]
 
 # ADD: Create platform sprites
