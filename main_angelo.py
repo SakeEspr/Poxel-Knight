@@ -105,6 +105,7 @@ class Player(pygame.sprite.Sprite):
         dy = 0
 
         mouse = pygame.mouse.get_pressed()
+        keys = pygame.key.get_pressed()
         
         # # Attack input
         # if mouse[1] and not self.dashing:
@@ -112,7 +113,7 @@ class Player(pygame.sprite.Sprite):
         #     self.update_action(5)
 
         # Dash input
-        if mouse[2] and not self.dashing and self.dash_cooldown == 0:
+        if keys[pygame.K_LSHIFT] and not self.dashing and self.dash_cooldown == 0:
             self.dashing = True
             self.dash_timer = DASH_TIME
             self.dash_cooldown = DASH_COOLDOWN
