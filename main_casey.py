@@ -71,16 +71,16 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
 
-    def move(self, moving_left, moving_right, attacking):
+    def move(self, moving_left, moving_right):
         dx = 0
         dy = 0
 
         mouse = pygame.mouse.get_pressed()
         
-		# Attack input
-        if mouse[1] and not self.dashing:
-            self.attacking = True
-            self.update_action(5)
+		# # Attack input
+        # if mouse[1] and not self.dashing:
+        #     self.attacking = True
+        #     self.update_action(5)
 
         # Dash input
         if mouse[2] and not self.dashing and self.dash_cooldown == 0:
