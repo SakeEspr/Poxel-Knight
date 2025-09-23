@@ -267,13 +267,13 @@ class Player(pygame.sprite.Sprite):
     def draw(self):
         screen.blit(pygame.transform.flip(self.image, self.flip, False), self.rect)
         
-        # Draw attack hitbox for debugging (optional - remove in final version)
-        if self.attack_rect:
-            # Semi-transparent red rectangle to show attack area
-            s = pygame.Surface((self.attack_rect.width, self.attack_rect.height))
-            s.set_alpha(50)
-            s.fill((255, 0, 0))
-            screen.blit(s, (self.attack_rect.x, self.attack_rect.y))
+        # # Draw attack hitbox for debugging (optional - remove in final version)
+        # if self.attack_rect:
+        #     # Semi-transparent red rectangle to show attack area
+        #     s = pygame.Surface((self.attack_rect.width, self.attack_rect.height))
+        #     s.set_alpha(50)
+        #     s.fill((255, 0, 0))
+        #     screen.blit(s, (self.attack_rect.x, self.attack_rect.y))
 
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
