@@ -235,7 +235,7 @@ class Player(pygame.sprite.Sprite):
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
         if self.action == 5:  # faster attack animation
-            ANIMATION_COOLDOWN = 2
+            ANIMATION_COOLDOWN = 3
 
         self.image = self.animation_list[self.action][self.frame_index]
         if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
