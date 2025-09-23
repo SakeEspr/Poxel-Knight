@@ -1,8 +1,6 @@
 import pygame
 import os
 
-
-
 pygame.init()
 
 # ---------- CONFIG ----------
@@ -20,17 +18,16 @@ DASH_SPEED = 12
 DASH_TIME = 10
 DASH_COOLDOWN = 40
 
+JUMP_SPEED = -11     # initial jump impulse
+MAX_JUMP_TIME = 15      # how many frames you can extend jump
+JUMP_HOLD_FORCE = -0.5  # extra upward push while holding jump
 
-BROWN = (139, 69, 19)  # ADD: Color for platforms
-
-# Load background image
-Back = pygame.image.load('img/BG/New_BG.png')
-Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
+BG = (255, 200, 200)  # background for test animations
 
 moving_left = False
 moving_right = False
 
-# ADD: PLATFORM CLASS ----------
+# ---------- PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, invisible=False):
         super().__init__()
@@ -38,27 +35,27 @@ class Platform(pygame.sprite.Sprite):
         if invisible:
             self.image.set_alpha(0)
             self.image.fill((0, 0, 0))
-        self.rect = pygame.Rect(x, y, width, height)
+        else:
+            self.image.fill((255, 255, 255))  # platform color
+        self.rect = self.image.get_rect(topleft=(x, y))
 
 platform_group = pygame.sprite.Group()
 
-# ADD: Define your platforms (x, y, width, height)
 platforms = [
-    (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
-    (0, 530, 300, 20),         # Platform 1
+    (0, 650, SCREEN_WIDTH, 80),  # Ground
+    (0, 530, 300, 20),
     (900, 530, 300, 20),
     (280, 410, 200, 20),
     (720, 410, 200, 20)
 ]
 
-# ADD: Create platform sprites
 for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
 def draw_bg():
-    screen.blit(Back, (0, 0))  # Draw the background image
-    platform_group.draw(screen)  # ADD: Draw all platforms
+    screen.fill(BG)
+    platform_group.draw(screen)
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -70,9 +67,11 @@ class Player(pygame.sprite.Sprite):
         self.direction = 1
         self.flip = False
 
+        # Jump
         self.vel_y = 0
-        self.jump = False
         self.in_air = True
+        self.jump_pressed = False
+        self.jump_timer = 0
 
         # Dash
         self.dashing = False
@@ -103,33 +102,25 @@ class Player(pygame.sprite.Sprite):
     def move(self, moving_left, moving_right):
         dx = 0
         dy = 0
-
-        mouse = pygame.mouse.get_pressed()
         keys = pygame.key.get_pressed()
-        
-        # # Attack input
-        # if mouse[1] and not self.dashing:
-        #     self.attacking = True
-        #     self.update_action(5)
 
-        # Dash input
+        # --- DASH INPUT ---
         if keys[pygame.K_LSHIFT] and not self.dashing and self.dash_cooldown == 0:
             self.dashing = True
             self.dash_timer = DASH_TIME
             self.dash_cooldown = DASH_COOLDOWN
             self.vel_y = 0
-            self.update_action(4)  # Dash animation
+            self.update_action(4)
 
-        # --- DASH BEHAVIOR ---
         if self.dashing:
             dx = DASH_SPEED * self.direction
             dy = 0
-            self.update_action(4)  # Keep dash animation active while dashing
+            self.update_action(4)
             self.dash_timer -= 1
             if self.dash_timer <= 0:
                 self.dashing = False
         else:
-            # Normal movement
+            # Horizontal move
             if moving_left:
                 dx = -self.speed
                 self.flip = True
@@ -139,11 +130,21 @@ class Player(pygame.sprite.Sprite):
                 self.flip = False
                 self.direction = 1
 
-            # Jump
-            if self.jump and not self.in_air:
-                self.vel_y = -15
-                self.jump = False
-                self.in_air = True
+            # --- HOLD TO JUMP ---
+            if keys[pygame.K_SPACE]:
+                if not self.jump_pressed:
+                    self.jump_pressed = True
+                    if not self.in_air:
+                        self.vel_y = JUMP_SPEED
+                        self.in_air = True
+                        self.jump_timer = MAX_JUMP_TIME
+                else:
+                    if self.jump_timer > 0:
+                        self.vel_y += JUMP_HOLD_FORCE
+                        self.jump_timer -= 1
+            else:
+                self.jump_pressed = False
+                self.jump_timer = 0
 
             # Gravity
             self.vel_y += GRAVITY
@@ -151,39 +152,31 @@ class Player(pygame.sprite.Sprite):
                 self.vel_y = 10
             dy += self.vel_y
 
-        # Dash cooldown
         if self.dash_cooldown > 0:
             self.dash_cooldown -= 1
 
-        # REPLACE: Old floor collision with platform collision
-        # --- PLATFORM COLLISION ---
-        # Move horizontally first
+        # --- COLLISIONS ---
         self.rect.x += dx
-        
-        # Check for horizontal collisions
         for platform in platform_group:
             if self.rect.colliderect(platform.rect):
-                if dx > 0:  # Moving right
+                if dx > 0:
                     self.rect.right = platform.rect.left
-                elif dx < 0:  # Moving left
+                elif dx < 0:
                     self.rect.left = platform.rect.right
 
-        # Move vertically
         self.rect.y += dy
         self.in_air = True
-        
-        # Check for vertical collisions
         for platform in platform_group:
             if self.rect.colliderect(platform.rect):
-                if self.vel_y > 0:  # Falling down
+                if self.vel_y > 0:
                     self.rect.bottom = platform.rect.top
                     self.vel_y = 0
                     self.in_air = False
-                elif self.vel_y < 0:  # Jumping up
+                    self.jump_timer = 0
+                elif self.vel_y < 0:
                     self.rect.top = platform.rect.bottom
                     self.vel_y = 0
 
-        # Keep player on screen
         if self.rect.left < 0:
             self.rect.left = 0
         elif self.rect.right > SCREEN_WIDTH:
@@ -192,12 +185,9 @@ class Player(pygame.sprite.Sprite):
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
         self.image = self.animation_list[self.action][self.frame_index]
-
         if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
             self.update_time = pygame.time.get_ticks()
             self.frame_index += 1
-
-            # Loop dash animation while dashing
             if self.action == 4:
                 if self.frame_index >= len(self.animation_list[4]):
                     self.frame_index = 0
@@ -225,12 +215,11 @@ while run:
     player.update_animation()
     player.draw()
 
-    # --- STATE HANDLING ---
     if player.alive:
         if player.dashing:
-            player.update_action(4)  # Dash
+            player.update_action(4)
         elif player.in_air:
-            if player.vel_y < 0 + 0.5:
+            if player.vel_y < 0:
                 player.update_action(2)  # Jump
             else:
                 player.update_action(3)  # Fall
@@ -240,7 +229,6 @@ while run:
             player.update_action(0)  # Idle
         player.move(moving_left, moving_right)
 
-    # Event handling
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             run = False
@@ -249,8 +237,6 @@ while run:
                 moving_left = True
             if event.key == pygame.K_d:
                 moving_right = True
-            if event.key == pygame.K_SPACE and player.alive:
-                player.jump = True
             if event.key == pygame.K_BACKSPACE:
                 run = False
         if event.type == pygame.KEYUP:
