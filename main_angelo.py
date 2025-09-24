@@ -83,19 +83,6 @@ for platform_data in platforms:
 def draw_bg():
     screen.blit(Back, (0, 0))  # Draw the background image
     platform_group.draw(screen)  # ADD: Draw all platforms
-
-# ---------- PROJECTILE CLASS ----------
-class Projectile(pygame.sprite.Sprite):
-    def __init__(self, x, y, direction, speed=6):
-        super().__init__()
-        self.direction = direction
-        self.speed = speed
-        
-        # Create projectile sprite
-        self.image = pygame.Surface((12, 6))
-        self.image.fill((255, 255, 0))  # Yellow projectile
-        self.rect = self.image.get_rect()
-        self.rect.center = (x, y)
         
     def update(self):
         # Move horizontally
@@ -151,7 +138,7 @@ class Enemy(pygame.sprite.Sprite):
             self.health = 0
             self.alive = False
 
-    def ai_behavior(self, player, projectile_group):
+    def ai_behavior(self, player):
         if not self.alive or not player.alive:
             return
             
@@ -187,10 +174,6 @@ class Enemy(pygame.sprite.Sprite):
             else:
                 self.direction = -1
                 self.flip = True
-            
-            # Create projectile
-            projectile = Projectile(self.rect.centerx, self.rect.centery, self.direction)
-            projectile_group.add(projectile)
         
         # Chase behavior
         elif self.state == 'chase':
@@ -551,7 +534,7 @@ class Player(pygame.sprite.Sprite):
         screen.blit(img, (draw_x, draw_y))
 
 # ---------- COMBAT SYSTEM ----------
-def check_combat(player, enemy, projectile_group):
+def check_combat(player, enemy):
     # Player attacking enemy
     if player.attacking and player.attack_rect and enemy.alive:
         if player.attack_rect.colliderect(enemy.rect):
@@ -566,25 +549,17 @@ def check_combat(player, enemy, projectile_group):
             
             # Prevent multiple hits from same attack
             player.attack_rect = None
-    
-    # Projectiles hitting player (only if not dashing)
-    if not player.dashing:
-        for projectile in projectile_group:
-            if projectile.rect.colliderect(player.rect) and player.alive:
-                player.take_damage(12)  # Stronger projectile damage
-                projectile.kill()
 
 # ---------- GAME RESTART FUNCTION ----------
 def restart_game():
-    global player, enemy, projectile_group
+    global player, enemy
     player = Player('player', 200, 200, 3, 5)
     enemy = Enemy(800, 500, 2, 2)
-    projectile_group = pygame.sprite.Group()
+
 
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
 enemy = Enemy(800, 500, 2, 2)
-projectile_group = pygame.sprite.Group()
 
 run = True
 while run:
@@ -618,22 +593,19 @@ while run:
 
     # Update enemy
     if enemy.alive:
-        enemy.ai_behavior(player, projectile_group)
+        enemy.ai_behavior(player)
         enemy.draw()
     
-    # Update projectiles
-    projectile_group.update()
-    projectile_group.draw(screen)
-    
+
     # Check combat
-    check_combat(player, enemy, projectile_group)
+    check_combat(player, enemy)
     
     # Draw health bars
     draw_health_bar(50, 50, player.health, player.max_health, label="Player")
     draw_health_bar(50, 100, enemy.health, enemy.max_health, label="Enemy")
     
     # Check if player died and restart game
-    if not player.alive:
+    if not player.alive or not enemy.alive:
         restart_game()
 
     for event in pygame.event.get():
