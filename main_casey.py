@@ -95,7 +95,7 @@ class Player(pygame.sprite.Sprite):
         self.action = 0
         self.update_time = pygame.time.get_ticks()
 
-        animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack']
+        animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack', 'Attack_Up']
         for animation in animation_types:
             temp_list = []
             num_of_frames = len(os.listdir(f'img/{self.char_type}/{animation}'))
