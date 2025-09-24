@@ -32,6 +32,7 @@ BG = (255, 200, 200)
 moving_left = False
 moving_right = False
 
+
 # ---------- PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, invisible=False):
@@ -43,6 +44,7 @@ class Platform(pygame.sprite.Sprite):
         else:
             self.image.fill((255, 255, 255))
         self.rect = self.image.get_rect(topleft=(x, y))
+
 
 platform_group = pygame.sprite.Group()
 
@@ -58,9 +60,11 @@ for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
+
 def draw_bg():
     screen.fill(BG)
     platform_group.draw(screen)
+
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -85,6 +89,7 @@ class Player(pygame.sprite.Sprite):
 
         # Attack
         self.attacking = False
+        self.attack_type = None  # "side" or "up"
         self.attack_timer = 0
         self.attack_cooldown = 0
         self.attack_rect = None
@@ -111,26 +116,42 @@ class Player(pygame.sprite.Sprite):
 
     def attack(self):
         if self.attack_cooldown == 0 and not self.dashing:
+            keys = pygame.key.get_pressed()
             self.attacking = True
-            self.attack_timer = len(self.animation_list[5]) * 40  # synced to animation
             self.attack_cooldown = 20
 
-            if self.direction == 1:
+            if keys[pygame.K_w]:
+                # Upward attack
+                self.attack_type = 'up'
+                self.attack_timer = len(self.animation_list[6]) * 40
+                self.update_action(6)
+
                 self.attack_rect = pygame.Rect(
-                    self.rect.right, 
-                    self.rect.centery - ATTACK_HEIGHT // 2,
-                    ATTACK_RANGE, 
-                    ATTACK_HEIGHT
+                    self.rect.centerx - ATTACK_WIDTH // 2,
+                    self.rect.top - ATTACK_RANGE,
+                    ATTACK_WIDTH,
+                    ATTACK_RANGE
                 )
             else:
-                self.attack_rect = pygame.Rect(
-                    self.rect.left - ATTACK_RANGE,
-                    self.rect.centery - ATTACK_HEIGHT // 2,
-                    ATTACK_RANGE,
-                    ATTACK_HEIGHT
-                )
-            
-            self.update_action(5)
+                # Side attack
+                self.attack_type = 'side'
+                self.attack_timer = len(self.animation_list[5]) * 40
+                self.update_action(5)
+
+                if self.direction == 1:
+                    self.attack_rect = pygame.Rect(
+                        self.rect.right,
+                        self.rect.centery - ATTACK_HEIGHT // 2,
+                        ATTACK_RANGE,
+                        ATTACK_HEIGHT
+                    )
+                else:
+                    self.attack_rect = pygame.Rect(
+                        self.rect.left - ATTACK_RANGE,
+                        self.rect.centery - ATTACK_HEIGHT // 2,
+                        ATTACK_RANGE,
+                        ATTACK_HEIGHT
+                    )
 
     def move(self, moving_left, moving_right):
         dx = 0
@@ -194,13 +215,18 @@ class Player(pygame.sprite.Sprite):
             self.attack_timer -= 1
             if self.attack_timer <= 0:
                 self.attacking = False
+                self.attack_type = None
                 self.attack_rect = None
             elif self.attack_rect:
-                if self.direction == 1:
-                    self.attack_rect.x = self.rect.right
-                else:
-                    self.attack_rect.x = self.rect.left - ATTACK_RANGE
-                self.attack_rect.centery = self.rect.centery
+                if self.attack_type == 'side':
+                    if self.direction == 1:
+                        self.attack_rect.x = self.rect.right
+                    else:
+                        self.attack_rect.x = self.rect.left - ATTACK_RANGE
+                    self.attack_rect.centery = self.rect.centery
+                elif self.attack_type == 'up':
+                    self.attack_rect.centerx = self.rect.centerx
+                    self.attack_rect.y = self.rect.top - ATTACK_RANGE
 
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
@@ -235,7 +261,7 @@ class Player(pygame.sprite.Sprite):
 
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
-        if self.action == 5:  # faster attack animation
+        if self.action in [5, 6]:  # attack animations faster
             ANIMATION_COOLDOWN = 3
 
         self.image = self.animation_list[self.action][self.frame_index]
@@ -244,8 +270,9 @@ class Player(pygame.sprite.Sprite):
             self.frame_index += 1
 
             if self.frame_index >= len(self.animation_list[self.action]):
-                if self.action == 5:
+                if self.action in [5, 6]:
                     self.attacking = False
+                    self.attack_type = None
                     self.attack_rect = None
                 self.frame_index = 0
 
@@ -262,15 +289,13 @@ class Player(pygame.sprite.Sprite):
         draw_y = self.rect.bottom - img.get_height()
 
         # Simple fixed offset for attack animation
-        if self.action == 5:  # Attack
+        if self.action == 5:  # Side Attack
             if self.direction == 1:  # Facing right
-                draw_x += 15  # move 5 pixels left
+                draw_x += 15
             else:  # Facing left
-                draw_x -= 30  # move 5 pixels right
+                draw_x -= 30
 
         screen.blit(img, (draw_x, draw_y))
-
-
 
 
 # ---------- MAIN LOOP ----------
@@ -286,7 +311,10 @@ while run:
 
     if player.alive:
         if player.attacking:
-            player.update_action(5)
+            if player.attack_type == 'up':
+                player.update_action(6)
+            else:
+                player.update_action(5)
         elif player.dashing:
             player.update_action(4)
         elif player.in_air:
@@ -298,7 +326,7 @@ while run:
             player.update_action(1)
         else:
             player.update_action(0)
-        
+
         player.move(moving_left, moving_right)
 
     for event in pygame.event.get():
