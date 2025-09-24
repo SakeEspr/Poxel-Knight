@@ -1,0 +1,14 @@
+# Load background image
+Back = pygame.image.load('img/BG/New_BG.png')
+Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
+
+def draw_bg():
+    screen.blit(Back, (0, 0))  # Draw the background image
+    platform_group.draw(screen)  # ADD: Draw all platforms
+
+
+
+def draw_bg():
+    screen.fill(BG)
+    platform_group.draw(screen)
+

@@ -32,7 +32,6 @@ BG = (255, 200, 200)
 moving_left = False
 moving_right = False
 
-
 # ---------- PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, invisible=False):
@@ -44,7 +43,6 @@ class Platform(pygame.sprite.Sprite):
         else:
             self.image.fill((255, 255, 255))
         self.rect = self.image.get_rect(topleft=(x, y))
-
 
 platform_group = pygame.sprite.Group()
 
@@ -60,11 +58,9 @@ for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
-
 def draw_bg():
     screen.fill(BG)
     platform_group.draw(screen)
-
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -89,7 +85,7 @@ class Player(pygame.sprite.Sprite):
 
         # Attack
         self.attacking = False
-        self.attack_type = None  # "side" or "up"
+        self.attack_type = None  # "side", "up", "down"
         self.attack_timer = 0
         self.attack_cooldown = 0
         self.attack_rect = None
@@ -100,7 +96,7 @@ class Player(pygame.sprite.Sprite):
         self.action = 0
         self.update_time = pygame.time.get_ticks()
 
-        animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack', 'Attack_Up']
+        animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack', 'Attack_Up', 'Attack_Down']
         for animation in animation_types:
             temp_list = []
             num_of_frames = len(os.listdir(f'img/{self.char_type}/{animation}'))
@@ -132,6 +128,20 @@ class Player(pygame.sprite.Sprite):
                     ATTACK_WIDTH,
                     ATTACK_RANGE
                 )
+
+            elif keys[pygame.K_s] and self.in_air:
+                # Downward attack
+                self.attack_type = 'down'
+                self.attack_timer = len(self.animation_list[7]) * 40
+                self.update_action(7)
+
+                self.attack_rect = pygame.Rect(
+                    self.rect.centerx - ATTACK_WIDTH // 2,
+                    self.rect.bottom,
+                    ATTACK_WIDTH,
+                    ATTACK_RANGE
+                )
+
             else:
                 # Side attack
                 self.attack_type = 'side'
@@ -227,6 +237,9 @@ class Player(pygame.sprite.Sprite):
                 elif self.attack_type == 'up':
                     self.attack_rect.centerx = self.rect.centerx
                     self.attack_rect.y = self.rect.top - ATTACK_RANGE
+                elif self.attack_type == 'down':
+                    self.attack_rect.centerx = self.rect.centerx
+                    self.attack_rect.y = self.rect.bottom
 
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
@@ -261,7 +274,7 @@ class Player(pygame.sprite.Sprite):
 
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
-        if self.action in [5, 6]:  # attack animations faster
+        if self.action in [5, 6, 7]:  # attack animations
             ANIMATION_COOLDOWN = 3
 
         self.image = self.animation_list[self.action][self.frame_index]
@@ -269,12 +282,31 @@ class Player(pygame.sprite.Sprite):
             self.update_time = pygame.time.get_ticks()
             self.frame_index += 1
 
+            # End-of-animation resets
             if self.frame_index >= len(self.animation_list[self.action]):
-                if self.action in [5, 6]:
+                if self.action in [5, 6, 7]:
                     self.attacking = False
                     self.attack_type = None
                     self.attack_rect = None
                 self.frame_index = 0
+
+            # --- Downward pogo mechanic for last 3 frames ---
+        if self.action == 7 and self.attack_rect and self.attacking:  # Attack_Down
+            last_frames_start = len(self.animation_list[7]) - 3
+            if self.frame_index >= last_frames_start:
+                # Update attack_rect position each frame
+                self.attack_rect.centerx = self.rect.centerx
+                self.attack_rect.y = self.rect.bottom
+
+                for platform in platform_group:
+                    if self.attack_rect.colliderect(platform.rect) and self.vel_y >= 0:
+                        self.vel_y = -13 # negative to go up
+                        self.attacking = False
+                        self.attack_cooldown = 15
+                        self.update_action(0)  # back to idle
+                        break
+
+
 
     def update_action(self, new_action):
         if new_action != self.action:
@@ -288,12 +320,15 @@ class Player(pygame.sprite.Sprite):
         draw_x = self.rect.left
         draw_y = self.rect.bottom - img.get_height()
 
-        # Simple fixed offset for attack animation
+        # Offsets for attack animations (sprite alignment hack)
         if self.action == 5:  # Side Attack
-            if self.direction == 1:  # Facing right
+            if self.direction == 1:  # facing right
                 draw_x += 15
-            else:  # Facing left
+            else:  # facing left
                 draw_x -= 30
+
+        elif self.action == 7:  # Down Attack
+            draw_y += 30  # move sprite downward a bit
 
         screen.blit(img, (draw_x, draw_y))
 
@@ -313,6 +348,8 @@ while run:
         if player.attacking:
             if player.attack_type == 'up':
                 player.update_action(6)
+            elif player.attack_type == 'down':
+                player.update_action(7)
             else:
                 player.update_action(5)
         elif player.dashing:
@@ -326,7 +363,7 @@ while run:
             player.update_action(1)
         else:
             player.update_action(0)
-
+        
         player.move(moving_left, moving_right)
 
     for event in pygame.event.get():
