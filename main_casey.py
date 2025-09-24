@@ -27,10 +27,14 @@ ATTACK_WIDTH = 40
 ATTACK_HEIGHT = 50
 ATTACK_DAMAGE = 10
 
-BG = (255, 200, 200)  # Pink background
+BG = (255, 200, 200)
 
 moving_left = False
 moving_right = False
+
+# Load background image
+Back = pygame.image.load('img/BG/New_BG.png')
+Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
 
 # Health bar colors
 RED = (255, 0, 0)
@@ -54,7 +58,7 @@ def draw_health_bar(x, y, current_health, max_health, width=200, height=20, labe
     text = font.render(f"{label}: {current_health}/{max_health}", True, WHITE)
     screen.blit(text, (x, y - 25))
 
-# ---------- PLATFORM CLASS ----------
+# ADD: PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, invisible=False):
         super().__init__()
@@ -62,18 +66,14 @@ class Platform(pygame.sprite.Sprite):
         if invisible:
             self.image.set_alpha(0)
             self.image.fill((0, 0, 0))
-        else:
-            self.image.fill((255, 255, 255))  # White platforms
-        self.rect = self.image.get_rect(topleft=(x, y))
+        self.rect = pygame.Rect(x, y, width, height)
 
 platform_group = pygame.sprite.Group()
 
 platforms = [
-    (0, 650, SCREEN_WIDTH, 80),
-    (0, 530, 300, 20),
-    (900, 530, 300, 20),
-    (280, 410, 200, 20),
-    (720, 410, 200, 20)
+    (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
+    (0, 530, 300, 20),                     # Platform 1
+    (900, 530, 300, 20)
 ]
 
 for platform_data in platforms:
@@ -81,8 +81,8 @@ for platform_data in platforms:
     platform_group.add(platform)
 
 def draw_bg():
-    screen.fill(BG)  # Pink background
-    platform_group.draw(screen)
+    screen.blit(Back, (0, 0))  # Draw the background image
+    platform_group.draw(screen)  # ADD: Draw all platforms
 
 # ---------- PROJECTILE CLASS ----------
 class Projectile(pygame.sprite.Sprite):
@@ -115,12 +115,12 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed * 1.2
+        self.speed = speed  # Make enemy faster
         self.direction = -1
         self.flip = False
         
         # Health
-        self.max_health = 120
+        self.max_health = 120  # Make enemy stronger
         self.health = self.max_health
         
         # Movement
@@ -139,8 +139,8 @@ class Enemy(pygame.sprite.Sprite):
         self.shoot_range = 200
         self.shoot_cooldown = 0
         
-        # Create enemy sprite
-        self.image = pygame.Surface((70, 90))
+        # Create bigger enemy sprite
+        self.image = pygame.Surface((70, 90))  # Make enemy bigger
         self.image.fill((255, 0, 0))  # Red enemy
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
@@ -178,7 +178,7 @@ class Enemy(pygame.sprite.Sprite):
         
         # Shooting behavior
         if self.state == 'shoot':
-            self.shoot_cooldown = 75
+            self.shoot_cooldown = 75  # Faster shooting (1.25 seconds at 60 FPS)
             
             # Face player
             if player.rect.centerx > self.rect.centerx:
@@ -204,11 +204,7 @@ class Enemy(pygame.sprite.Sprite):
                 self.flip = True
                 dx = -self.speed
             
-            # Jump if player is above and enemy can jump
-            if player_height_diff > 60 and not self.in_air and self.jump_cooldown == 0 and distance_to_player < 150:
-                self.vel_y = JUMP_SPEED * 1.1
-                self.in_air = True
-                self.jump_cooldown = 45
+
         
         # Patrol behavior
         elif self.state == 'patrol':
@@ -221,10 +217,10 @@ class Enemy(pygame.sprite.Sprite):
             
             dx = self.speed * self.direction
             
-            # Random jump while patrolling
+            # Random jump while patrolling (small chance)
             if not self.in_air and self.jump_cooldown == 0 and pygame.time.get_ticks() % 300 == 0:
-                if abs(dx) > 0:
-                    self.vel_y = JUMP_SPEED * 0.8
+                if abs(dx) > 0:  # Only jump if moving
+                    self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
                     self.in_air = True
                     self.jump_cooldown = 60
         
@@ -327,18 +323,11 @@ class Player(pygame.sprite.Sprite):
         animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack', 'Attack_Up', 'Attack_Down']
         for animation in animation_types:
             temp_list = []
-            try:
-                num_of_frames = len(os.listdir(f'img/{self.char_type}/{animation}'))
-                for i in range(num_of_frames):
-                    img = pygame.image.load(f'img/{self.char_type}/{animation}/{i}.png')
-                    img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
-                    temp_list.append(img)
-            except:
-                # Fallback to simple rectangles if images don't exist
-                for i in range(4):
-                    img = pygame.Surface((60, 80))
-                    img.fill((0, 0, 255))  # Blue player
-                    temp_list.append(img)
+            num_of_frames = len(os.listdir(f'img/{self.char_type}/{animation}'))
+            for i in range(num_of_frames):
+                img = pygame.image.load(f'img/{self.char_type}/{animation}/{i}.png')
+                img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
+                temp_list.append(img)
             self.animation_list.append(temp_list)
 
         self.image = self.animation_list[self.action][self.frame_index]
@@ -369,7 +358,6 @@ class Player(pygame.sprite.Sprite):
                     ATTACK_WIDTH,
                     ATTACK_RANGE
                 )
-
             elif keys[pygame.K_s] and self.in_air:
                 # Downward attack
                 self.attack_type = 'down'
@@ -382,7 +370,6 @@ class Player(pygame.sprite.Sprite):
                     ATTACK_WIDTH,
                     ATTACK_RANGE
                 )
-
             else:
                 # Side attack
                 self.attack_type = 'side'
@@ -487,12 +474,14 @@ class Player(pygame.sprite.Sprite):
 
         # Horizontal collisions
         self.rect.x += dx
-        for platform in platform_group:
-            if self.rect.colliderect(platform.rect):
-                if dx > 0:
-                    self.rect.right = platform.rect.left
-                elif dx < 0:
-                    self.rect.left = platform.rect.right
+        # Skip platform collision during dash to allow dashing through enemy
+        if not self.dashing:
+            for platform in platform_group:
+                if self.rect.colliderect(platform.rect):
+                    if dx > 0:
+                        self.rect.right = platform.rect.left
+                    elif dx < 0:
+                        self.rect.left = platform.rect.right
 
         # Vertical collisions
         self.rect.y += dy
@@ -515,7 +504,7 @@ class Player(pygame.sprite.Sprite):
 
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
-        if self.action in [5, 6, 7]:  # attack animations
+        if self.action in [5, 6, 7]:  # attack animations faster
             ANIMATION_COOLDOWN = 3
 
         self.image = self.animation_list[self.action][self.frame_index]
@@ -523,29 +512,20 @@ class Player(pygame.sprite.Sprite):
             self.update_time = pygame.time.get_ticks()
             self.frame_index += 1
 
-            # End-of-animation resets
             if self.frame_index >= len(self.animation_list[self.action]):
                 if self.action in [5, 6, 7]:
                     self.attacking = False
                     self.attack_type = None
                     self.attack_rect = None
                 self.frame_index = 0
-
-        # --- Downward pogo mechanic for last 3 frames ---
+        
+        # Downward pogo mechanic for last 3 frames
         if self.action == 7 and self.attack_rect and self.attacking:  # Attack_Down
             last_frames_start = len(self.animation_list[7]) - 3
             if self.frame_index >= last_frames_start:
                 # Update attack_rect position each frame
                 self.attack_rect.centerx = self.rect.centerx
                 self.attack_rect.y = self.rect.bottom
-
-                for platform in platform_group:
-                    if self.attack_rect.colliderect(platform.rect) and self.vel_y >= 0:
-                        self.vel_y = -13  # negative to go up
-                        self.attacking = False
-                        self.attack_cooldown = 15
-                        self.update_action(0)  # back to idle
-                        break
 
     def update_action(self, new_action):
         if new_action != self.action:
@@ -559,13 +539,12 @@ class Player(pygame.sprite.Sprite):
         draw_x = self.rect.left
         draw_y = self.rect.bottom - img.get_height()
 
-        # Offsets for attack animations (sprite alignment hack)
+        # Simple fixed offset for attack animation
         if self.action == 5:  # Side Attack
-            if self.direction == 1:  # facing right
+            if self.direction == 1:  # Facing right
                 draw_x += 15
-            else:  # facing left
+            else:  # Facing left
                 draw_x -= 30
-
         elif self.action == 7:  # Down Attack
             draw_y += 30  # move sprite downward a bit
 
@@ -577,6 +556,14 @@ def check_combat(player, enemy, projectile_group):
     if player.attacking and player.attack_rect and enemy.alive:
         if player.attack_rect.colliderect(enemy.rect):
             enemy.take_damage(ATTACK_DAMAGE)
+            
+            # Special bounce for downward attack
+            if player.attack_type == 'down' and player.vel_y >= 0:
+                player.vel_y = -13  # Bounce up
+                player.attacking = False
+                player.attack_cooldown = 15
+                player.update_action(0)  # Back to idle
+            
             # Prevent multiple hits from same attack
             player.attack_rect = None
     
@@ -584,7 +571,7 @@ def check_combat(player, enemy, projectile_group):
     if not player.dashing:
         for projectile in projectile_group:
             if projectile.rect.colliderect(player.rect) and player.alive:
-                player.take_damage(12)
+                player.take_damage(12)  # Stronger projectile damage
                 projectile.kill()
 
 # ---------- GAME RESTART FUNCTION ----------
@@ -626,7 +613,7 @@ while run:
             player.update_action(1)
         else:
             player.update_action(0)
-        
+
         player.move(moving_left, moving_right)
 
     # Update enemy
