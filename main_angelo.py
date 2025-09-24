@@ -1,8 +1,6 @@
 import pygame
 import os
 
-
-
 pygame.init()
 
 # ---------- CONFIG ----------
@@ -11,12 +9,8 @@ SCREEN_HEIGHT = 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Poxel')
 
-
-
-
 FPS = 60
 clock = pygame.time.Clock()
-
 
 # ---------- GAME VARIABLES ----------
 GRAVITY = 0.75
@@ -42,8 +36,27 @@ moving_right = False
 Back = pygame.image.load('img/BG/New_BG.png')
 Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
 
-moving_left = False
-moving_right = False
+# Health bar colors
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+
+# ---------- HEALTH BAR FUNCTION ----------
+def draw_health_bar(x, y, current_health, max_health, width=200, height=20, label="Health"):
+    # Background bar
+    pygame.draw.rect(screen, BLACK, (x-2, y-2, width+4, height+4))
+    pygame.draw.rect(screen, RED, (x, y, width, height))
+    
+    # Health bar
+    health_ratio = max(0, current_health / max_health)
+    health_width = int(width * health_ratio)
+    pygame.draw.rect(screen, GREEN, (x, y, health_width, height))
+    
+    # Text
+    font = pygame.font.Font(None, 24)
+    text = font.render(f"{label}: {current_health}/{max_health}", True, WHITE)
+    screen.blit(text, (x, y - 25))
 
 # ADD: PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
@@ -57,13 +70,11 @@ class Platform(pygame.sprite.Sprite):
 
 platform_group = pygame.sprite.Group()
 
-
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
     (0, 530, 300, 20),                     # Platform 1
     (900, 530, 300, 20)
 ]
-
 
 for platform_data in platforms:
     platform = Platform(*platform_data)
@@ -72,6 +83,208 @@ for platform_data in platforms:
 def draw_bg():
     screen.blit(Back, (0, 0))  # Draw the background image
     platform_group.draw(screen)  # ADD: Draw all platforms
+
+# ---------- PROJECTILE CLASS ----------
+class Projectile(pygame.sprite.Sprite):
+    def __init__(self, x, y, direction, speed=6):
+        super().__init__()
+        self.direction = direction
+        self.speed = speed
+        
+        # Create projectile sprite
+        self.image = pygame.Surface((12, 6))
+        self.image.fill((255, 255, 0))  # Yellow projectile
+        self.rect = self.image.get_rect()
+        self.rect.center = (x, y)
+        
+    def update(self):
+        # Move horizontally
+        self.rect.x += self.speed * self.direction
+        
+        # Remove if off screen
+        if self.rect.right < 0 or self.rect.left > SCREEN_WIDTH:
+            self.kill()
+        
+        # Check platform collisions
+        for platform in platform_group:
+            if self.rect.colliderect(platform.rect):
+                self.kill()
+
+# ---------- ENEMY CLASS ----------
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, x, y, scale, speed):
+        super().__init__()
+        self.alive = True
+        self.speed = speed * 1.2  # Make enemy faster
+        self.direction = -1
+        self.flip = False
+        
+        # Health
+        self.max_health = 120  # Make enemy stronger
+        self.health = self.max_health
+        
+        # Movement
+        self.vel_y = 0
+        self.in_air = True
+        self.patrol_distance = 200
+        self.start_x = x
+        
+        # Jumping
+        self.can_jump = True
+        self.jump_cooldown = 0
+        
+        # AI states
+        self.state = 'patrol'  # 'patrol', 'chase', 'shoot'
+        self.detection_range = 250
+        self.shoot_range = 200
+        self.shoot_cooldown = 0
+        
+        # Create bigger enemy sprite
+        self.image = pygame.Surface((70, 90))  # Make enemy bigger
+        self.image.fill((255, 0, 0))  # Red enemy
+        self.rect = self.image.get_rect()
+        self.rect.center = (x, y)
+
+    def take_damage(self, damage):
+        self.health -= damage
+        if self.health <= 0:
+            self.health = 0
+            self.alive = False
+
+    def ai_behavior(self, player, projectile_group):
+        if not self.alive or not player.alive:
+            return
+            
+        dx = 0
+        dy = 0
+        
+        # Calculate distance to player
+        distance_to_player = abs(self.rect.centerx - player.rect.centerx)
+        player_height_diff = self.rect.centery - player.rect.centery
+        
+        # Update cooldowns
+        if self.shoot_cooldown > 0:
+            self.shoot_cooldown -= 1
+        if self.jump_cooldown > 0:
+            self.jump_cooldown -= 1
+        
+        # State machine
+        if distance_to_player <= self.shoot_range and self.shoot_cooldown == 0:
+            self.state = 'shoot'
+        elif distance_to_player <= self.detection_range:
+            self.state = 'chase'
+        else:
+            self.state = 'patrol'
+        
+        # Shooting behavior
+        if self.state == 'shoot':
+            self.shoot_cooldown = 75  # Faster shooting (1.25 seconds at 60 FPS)
+            
+            # Face player
+            if player.rect.centerx > self.rect.centerx:
+                self.direction = 1
+                self.flip = False
+            else:
+                self.direction = -1
+                self.flip = True
+            
+            # Create projectile
+            projectile = Projectile(self.rect.centerx, self.rect.centery, self.direction)
+            projectile_group.add(projectile)
+        
+        # Chase behavior
+        elif self.state == 'chase':
+            # Face player
+            if player.rect.centerx > self.rect.centerx:
+                self.direction = 1
+                self.flip = False
+                dx = self.speed
+            else:
+                self.direction = -1
+                self.flip = True
+                dx = -self.speed
+            
+            # Jump if player is above and enemy can jump
+            if player_height_diff > 60 and not self.in_air and self.jump_cooldown == 0 and distance_to_player < 150:
+                self.vel_y = JUMP_SPEED * 1.1  # Slightly higher jump
+                self.in_air = True
+                self.jump_cooldown = 45  # Jump cooldown
+        
+        # Patrol behavior
+        elif self.state == 'patrol':
+            if self.rect.centerx <= self.start_x - self.patrol_distance:
+                self.direction = 1
+                self.flip = False
+            elif self.rect.centerx >= self.start_x + self.patrol_distance:
+                self.direction = -1
+                self.flip = True
+            
+            dx = self.speed * self.direction
+            
+            # Random jump while patrolling (small chance)
+            if not self.in_air and self.jump_cooldown == 0 and pygame.time.get_ticks() % 300 == 0:
+                if abs(dx) > 0:  # Only jump if moving
+                    self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
+                    self.in_air = True
+                    self.jump_cooldown = 60
+        
+        # Apply gravity
+        self.vel_y += GRAVITY
+        if self.vel_y > 10:
+            self.vel_y = 10
+        dy += self.vel_y
+        
+        # Horizontal movement and collision
+        self.rect.x += dx
+        for platform in platform_group:
+            if self.rect.colliderect(platform.rect):
+                if dx > 0:
+                    self.rect.right = platform.rect.left
+                    if self.state == 'patrol':
+                        self.direction = -1
+                        self.flip = True
+                elif dx < 0:
+                    self.rect.left = platform.rect.right
+                    if self.state == 'patrol':
+                        self.direction = 1
+                        self.flip = False
+        
+        # Vertical movement and collision
+        self.rect.y += dy
+        self.in_air = True
+        for platform in platform_group:
+            if self.rect.colliderect(platform.rect):
+                if self.vel_y > 0:
+                    self.rect.bottom = platform.rect.top
+                    self.vel_y = 0
+                    self.in_air = False
+                elif self.vel_y < 0:
+                    self.rect.top = platform.rect.bottom
+                    self.vel_y = 0
+        
+        # Keep enemy on screen
+        if self.rect.left < 0:
+            self.rect.left = 0
+            if self.state == 'patrol':
+                self.direction = 1
+                self.flip = False
+        elif self.rect.right > SCREEN_WIDTH:
+            self.rect.right = SCREEN_WIDTH
+            if self.state == 'patrol':
+                self.direction = -1
+                self.flip = True
+
+    def draw(self):
+        # Change color based on state
+        if self.state == 'shoot':
+            self.image.fill((255, 200, 0))  # Orange when shooting
+        elif self.state == 'chase':
+            self.image.fill((255, 100, 100))  # Light red when chasing
+        else:
+            self.image.fill((255, 0, 0))  # Normal red when patrolling
+        
+        img = pygame.transform.flip(self.image, self.flip, False)
+        screen.blit(img, self.rect)
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -82,6 +295,10 @@ class Player(pygame.sprite.Sprite):
         self.speed = speed
         self.direction = 1
         self.flip = False
+        
+        # Health
+        self.max_health = 100
+        self.health = self.max_health
 
         # Jump
         self.vel_y = 0
@@ -120,6 +337,12 @@ class Player(pygame.sprite.Sprite):
         self.image = self.animation_list[self.action][self.frame_index]
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
+
+    def take_damage(self, damage):
+        self.health -= damage
+        if self.health <= 0:
+            self.health = 0
+            self.alive = False
 
     def attack(self):
         if self.attack_cooldown == 0 and not self.dashing:
@@ -240,12 +463,14 @@ class Player(pygame.sprite.Sprite):
 
         # Horizontal collisions
         self.rect.x += dx
-        for platform in platform_group:
-            if self.rect.colliderect(platform.rect):
-                if dx > 0:
-                    self.rect.right = platform.rect.left
-                elif dx < 0:
-                    self.rect.left = platform.rect.right
+        # Skip platform collision during dash to allow dashing through enemy
+        if not self.dashing:
+            for platform in platform_group:
+                if self.rect.colliderect(platform.rect):
+                    if dx > 0:
+                        self.rect.right = platform.rect.left
+                    elif dx < 0:
+                        self.rect.left = platform.rect.right
 
         # Vertical collisions
         self.rect.y += dy
@@ -304,9 +529,33 @@ class Player(pygame.sprite.Sprite):
 
         screen.blit(img, (draw_x, draw_y))
 
+# ---------- COMBAT SYSTEM ----------
+def check_combat(player, enemy, projectile_group):
+    # Player attacking enemy
+    if player.attacking and player.attack_rect and enemy.alive:
+        if player.attack_rect.colliderect(enemy.rect):
+            enemy.take_damage(ATTACK_DAMAGE)
+            # Prevent multiple hits from same attack
+            player.attack_rect = None
+    
+    # Projectiles hitting player (only if not dashing)
+    if not player.dashing:
+        for projectile in projectile_group:
+            if projectile.rect.colliderect(player.rect) and player.alive:
+                player.take_damage(12)  # Stronger projectile damage
+                projectile.kill()
+
+# ---------- GAME RESTART FUNCTION ----------
+def restart_game():
+    global player, enemy, projectile_group
+    player = Player('player', 200, 200, 3, 5)
+    enemy = Enemy(800, 500, 2, 2)
+    projectile_group = pygame.sprite.Group()
 
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
+enemy = Enemy(800, 500, 2, 2)
+projectile_group = pygame.sprite.Group()
 
 run = True
 while run:
@@ -335,6 +584,26 @@ while run:
             player.update_action(0)
 
         player.move(moving_left, moving_right)
+
+    # Update enemy
+    if enemy.alive:
+        enemy.ai_behavior(player, projectile_group)
+        enemy.draw()
+    
+    # Update projectiles
+    projectile_group.update()
+    projectile_group.draw(screen)
+    
+    # Check combat
+    check_combat(player, enemy, projectile_group)
+    
+    # Draw health bars
+    draw_health_bar(50, 50, player.health, player.max_health, label="Player")
+    draw_health_bar(50, 100, enemy.health, enemy.max_health, label="Enemy")
+    
+    # Check if player died and restart game
+    if not player.alive:
+        restart_game()
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
