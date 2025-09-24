@@ -11,6 +11,9 @@ SCREEN_HEIGHT = 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Poxel')
 
+
+
+
 FPS = 60
 clock = pygame.time.Clock()
 
@@ -42,14 +45,14 @@ class Platform(pygame.sprite.Sprite):
 
 platform_group = pygame.sprite.Group()
 
-# ADD: Define your platforms (x, y, width, height)
+
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
-    (0, 530, 300, 20),         # Platform 1
+    (0, 530, 300, 20),                     # Platform 1
     (900, 530, 300, 20)
 ]
 
-# ADD: Create platform sprites
+
 for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
@@ -57,6 +60,7 @@ for platform_data in platforms:
 def draw_bg():
     screen.blit(Back, (0, 0))  # Draw the background image
     platform_group.draw(screen)  # ADD: Draw all platforms
+# --------------ENEMY---------------
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -153,9 +157,7 @@ class Player(pygame.sprite.Sprite):
         if self.dash_cooldown > 0:
             self.dash_cooldown -= 1
 
-        # REPLACE: Old floor collision with platform collision
-        # --- PLATFORM COLLISION ---
-        # Move horizontally first
+
         self.rect.x += dx
         
         # Check for horizontal collisions
