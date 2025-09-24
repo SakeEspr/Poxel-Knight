@@ -72,8 +72,8 @@ platform_group = pygame.sprite.Group()
 
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
-    (0, 530, 300, 20),                     # Platform 1
-    (900, 530, 300, 20)
+    (100, 530, 240, 20),                     # Platform 1
+    (800, 530, 240, 20)
 ]
 
 for platform_data in platforms:
