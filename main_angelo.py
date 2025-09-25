@@ -15,7 +15,7 @@ clock = pygame.time.Clock()
 # ---------- GAME VARIABLES ----------
 GRAVITY = 0.75
 DASH_SPEED = 12
-DASH_TIME = 12
+DASH_TIME = 10
 DASH_COOLDOWN = 40
 
 JUMP_SPEED = -11
@@ -42,21 +42,33 @@ GREEN = (0, 255, 0)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
-# ---------- HEALTH BAR FUNCTION ----------
-def draw_health_bar(x, y, current_health, max_health, width=200, height=20, label="Health"):
-    # Background bar
-    pygame.draw.rect(screen, BLACK, (x-2, y-2, width+4, height+4))
-    pygame.draw.rect(screen, RED, (x, y, width, height))
+# ---------- LOAD HEALTH MASKS ----------
+mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
+mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
+# Scale masks to appropriate size (adjust scale as needed)
+MASK_SCALE = 2  # Adjust this value to make masks bigger/smaller
+mask_filled = pygame.transform.scale(mask_filled, 
+    (int(mask_filled.get_width() * MASK_SCALE), 
+     int(mask_filled.get_height() * MASK_SCALE)))
+mask_empty = pygame.transform.scale(mask_empty, 
+    (int(mask_empty.get_width() * MASK_SCALE), 
+     int(mask_empty.get_height() * MASK_SCALE)))
+
+# ---------- HEALTH MASK FUNCTION ----------
+def draw_health_masks(current_masks, max_masks=5):
+    """Draw health masks Hollow Knight style"""
+    mask_spacing = 10  # Space between masks
+    start_x = 20  # Starting X position
+    start_y = 20  # Starting Y position
     
-    # Health bar
-    health_ratio = max(0, current_health / max_health)
-    health_width = int(width * health_ratio)
-    pygame.draw.rect(screen, GREEN, (x, y, health_width, height))
-    
-    # Text
-    font = pygame.font.Font(None, 24)
-    text = font.render(f"{label}: {current_health}/{max_health}", True, WHITE)
-    screen.blit(text, (x, y - 25))
+    for i in range(max_masks):
+        x = start_x + i * (mask_filled.get_width() + mask_spacing)
+        y = start_y
+        
+        if i < current_masks:
+            screen.blit(mask_filled, (x, y))
+        else:
+            screen.blit(mask_empty, (x, y))
 
 # ADD: PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
@@ -72,8 +84,8 @@ platform_group = pygame.sprite.Group()
 
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
-    (0, 530, 300, 20),                     # Platform 1
-    (900, 530, 300, 20)
+    (100, 530, 240, 20),                     # Platform 1
+    (800, 530, 240, 20)
 ]
 
 for platform_data in platforms:
@@ -83,19 +95,6 @@ for platform_data in platforms:
 def draw_bg():
     screen.blit(Back, (0, 0))  # Draw the background image
     platform_group.draw(screen)  # ADD: Draw all platforms
-
-# ---------- PROJECTILE CLASS ----------
-class Projectile(pygame.sprite.Sprite):
-    def __init__(self, x, y, direction, speed=6):
-        super().__init__()
-        self.direction = direction
-        self.speed = speed
-        
-        # Create projectile sprite
-        self.image = pygame.Surface((12, 6))
-        self.image.fill((255, 255, 0))  # Yellow projectile
-        self.rect = self.image.get_rect()
-        self.rect.center = (x, y)
         
     def update(self):
         # Move horizontally
@@ -115,7 +114,7 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed # Make enemy faster
+        self.speed = speed  # Make enemy faster
         self.direction = -1
         self.flip = False
         
@@ -134,11 +133,13 @@ class Enemy(pygame.sprite.Sprite):
         self.jump_cooldown = 0
         
         # AI states
-        self.state = 'patrol'  # 'patrol', 'chase'
+        self.state = 'patrol'  # 'patrol', 'chase', 'shoot'
         self.detection_range = 250
+        self.shoot_range = 200
+        self.shoot_cooldown = 0
         
         # Create bigger enemy sprite
-        self.image = pygame.Surface((55, 70))  # Make enemy bigger
+        self.image = pygame.Surface((70, 90))  # Make enemy bigger
         self.image.fill((255, 0, 0))  # Red enemy
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
@@ -161,17 +162,33 @@ class Enemy(pygame.sprite.Sprite):
         player_height_diff = self.rect.centery - player.rect.centery
         
         # Update cooldowns
+        if self.shoot_cooldown > 0:
+            self.shoot_cooldown -= 1
         if self.jump_cooldown > 0:
             self.jump_cooldown -= 1
         
         # State machine
-        if distance_to_player <= self.detection_range:
+        if distance_to_player <= self.shoot_range and self.shoot_cooldown == 0:
+            self.state = 'shoot'
+        elif distance_to_player <= self.detection_range:
             self.state = 'chase'
         else:
             self.state = 'patrol'
         
+        # Shooting behavior
+        if self.state == 'shoot':
+            self.shoot_cooldown = 75  # Faster shooting (1.25 seconds at 60 FPS)
+            
+            # Face player
+            if player.rect.centerx > self.rect.centerx:
+                self.direction = 1
+                self.flip = False
+            else:
+                self.direction = -1
+                self.flip = True
+        
         # Chase behavior
-        if self.state == 'chase':
+        elif self.state == 'chase':
             # Face player
             if player.rect.centerx > self.rect.centerx:
                 self.direction = 1
@@ -183,6 +200,7 @@ class Enemy(pygame.sprite.Sprite):
                 dx = -self.speed
             
 
+        
         # Patrol behavior
         elif self.state == 'patrol':
             if self.rect.centerx <= self.start_x - self.patrol_distance:
@@ -249,7 +267,9 @@ class Enemy(pygame.sprite.Sprite):
 
     def draw(self):
         # Change color based on state
-        if self.state == 'chase':
+        if self.state == 'shoot':
+            self.image.fill((255, 200, 0))  # Orange when shooting
+        elif self.state == 'chase':
             self.image.fill((255, 100, 100))  # Light red when chasing
         else:
             self.image.fill((255, 0, 0))  # Normal red when patrolling
@@ -267,9 +287,10 @@ class Player(pygame.sprite.Sprite):
         self.direction = 1
         self.flip = False
         
-        # Health
-        self.max_health = 100
-        self.health = self.max_health
+        # Health - Modified for mask system
+        self.max_masks = 5  # 5 masks like Hollow Knight
+        self.current_masks = 5  # Start with full health
+        self.damage_cooldown = 0  # Invincibility frames after taking damage
 
         # Jump
         self.vel_y = 0
@@ -310,10 +331,14 @@ class Player(pygame.sprite.Sprite):
         self.rect.center = (x, y)
 
     def take_damage(self, damage):
-        self.health -= damage
-        if self.health <= 0:
-            self.health = 0
-            self.alive = False
+        # Only take damage if not in invincibility frames
+        if self.damage_cooldown == 0:
+            self.current_masks -= 1  # Lose one mask
+            self.damage_cooldown = 60  # 1 second of invincibility at 60 FPS
+            
+            if self.current_masks <= 0:
+                self.current_masks = 0
+                self.alive = False
 
     def attack(self):
         if self.attack_cooldown == 0 and not self.dashing:
@@ -371,6 +396,10 @@ class Player(pygame.sprite.Sprite):
         dy = 0
         keys = pygame.key.get_pressed()
         mouse = pygame.mouse.get_pressed()
+
+        # Update damage cooldown
+        if self.damage_cooldown > 0:
+            self.damage_cooldown -= 1
 
         # Dash input
         if mouse[2] and not self.dashing and self.dash_cooldown == 0 and not self.attacking:
@@ -523,6 +552,13 @@ class Player(pygame.sprite.Sprite):
         elif self.action == 7:  # Down Attack
             draw_y += 30  # move sprite downward a bit
 
+        # Flash effect when in invincibility frames (optional)
+        if self.damage_cooldown > 0 and self.damage_cooldown % 10 < 5:
+            # Make player semi-transparent when invincible
+            img.set_alpha(128)
+        else:
+            img.set_alpha(255)
+
         screen.blit(img, (draw_x, draw_y))
 
 # ---------- COMBAT SYSTEM ----------
@@ -541,19 +577,33 @@ def check_combat(player, enemy):
             
             # Prevent multiple hits from same attack
             player.attack_rect = None
-    
-    # Enemy collision damage (only if not dashing)
-    if not player.dashing and enemy.alive and player.alive:
-        if player.rect.colliderect(enemy.rect):
-            player.take_damage(1)  # Contact damage per frame
-    
 
+    # Enemy damages player on collision (with invincibility frames check)
+    if enemy.alive and player.alive and player.rect.colliderect(enemy.rect):
+        player.take_damage(1)  # Take 1 mask of damage
+
+# ---------- DRAW ENEMY HEALTH BAR ----------
+def draw_enemy_health_bar(enemy):
+    """Draw a simple health bar for the enemy"""
+    if enemy.alive and enemy.health < enemy.max_health:
+        bar_width = 50
+        bar_height = 5
+        bar_x = enemy.rect.centerx - bar_width // 2
+        bar_y = enemy.rect.top - 15
+        
+        # Background
+        pygame.draw.rect(screen, RED, (bar_x, bar_y, bar_width, bar_height))
+        
+        # Health
+        health_width = int(bar_width * (enemy.health / enemy.max_health))
+        pygame.draw.rect(screen, GREEN, (bar_x, bar_y, health_width, bar_height))
 
 # ---------- GAME RESTART FUNCTION ----------
 def restart_game():
     global player, enemy
     player = Player('player', 200, 200, 3, 5)
     enemy = Enemy(800, 500, 2, 2)
+
 
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
@@ -593,16 +643,16 @@ while run:
     if enemy.alive:
         enemy.ai_behavior(player)
         enemy.draw()
+        draw_enemy_health_bar(enemy)  # Draw enemy health bar
     
     # Check combat
     check_combat(player, enemy)
     
-    # Draw health bars
-    draw_health_bar(50, 50, player.health, player.max_health, label="Player")
-    draw_health_bar(50, 100, enemy.health, enemy.max_health, label="Enemy")
+    # Draw health masks instead of health bars
+    draw_health_masks(player.current_masks, player.max_masks)
     
     # Check if player died and restart game
-    if not player.alive or not enemy.alive:
+    if not player.alive:
         restart_game()
 
     for event in pygame.event.get():
