@@ -1,5 +1,6 @@
 import pygame
 import os
+import random
 
 pygame.init()
 
@@ -17,6 +18,8 @@ GRAVITY = 0.75
 DASH_SPEED = 12
 DASH_TIME = 10
 DASH_COOLDOWN = 40
+
+ENEMY_JUMP_CHANCE = 0.03   # 1% chance each frame while patrolling
 
 JUMP_SPEED = -11
 MAX_JUMP_TIME = 15
