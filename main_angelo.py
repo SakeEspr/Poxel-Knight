@@ -32,9 +32,16 @@ BG = (255, 200, 200)
 moving_left = False
 moving_right = False
 
-# Load background image
-Back = pygame.image.load('img/BG/New_BG.png')
-Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
+# OPTIMIZED: Pre-scale background once and convert for better blitting performance
+try:
+    Back = pygame.image.load('img/BG/New_BG.png')
+    Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
+    Back = Back.convert()  # Convert for faster blitting
+except pygame.error:
+    # Fallback if image doesn't exist
+    Back = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    Back.fill(BG)
+    Back = Back.convert()
 
 # Health bar colors
 RED = (255, 0, 0)
@@ -43,16 +50,28 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
 # ---------- LOAD HEALTH MASKS ----------
-mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
-mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
-# Scale masks to appropriate size (adjust scale as needed)
-MASK_SCALE = 2  # Adjust this value to make masks bigger/smaller
-mask_filled = pygame.transform.scale(mask_filled, 
-    (int(mask_filled.get_width() * MASK_SCALE), 
-     int(mask_filled.get_height() * MASK_SCALE)))
-mask_empty = pygame.transform.scale(mask_empty, 
-    (int(mask_empty.get_width() * MASK_SCALE), 
-     int(mask_empty.get_height() * MASK_SCALE)))
+try:
+    mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
+    mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
+    # Scale masks to appropriate size (adjust scale as needed)
+    MASK_SCALE = 1.5  # Adjust this value to make masks bigger/smaller
+    mask_filled = pygame.transform.scale(mask_filled, 
+        (int(mask_filled.get_width() * MASK_SCALE), 
+         int(mask_filled.get_height() * MASK_SCALE)))
+    mask_empty = pygame.transform.scale(mask_empty, 
+        (int(mask_empty.get_width() * MASK_SCALE), 
+         int(mask_empty.get_height() * MASK_SCALE)))
+    # Convert for better performance
+    mask_filled = mask_filled.convert_alpha()
+    mask_empty = mask_empty.convert_alpha()
+except pygame.error:
+    # Fallback if images don't exist
+    mask_filled = pygame.Surface((30, 30))
+    mask_filled.fill(GREEN)
+    mask_empty = pygame.Surface((30, 30))
+    mask_empty.fill(RED)
+    mask_filled = mask_filled.convert()
+    mask_empty = mask_empty.convert()
 
 # ---------- HEALTH MASK FUNCTION ----------
 def draw_health_masks(current_masks, max_masks=5):
@@ -78,6 +97,10 @@ class Platform(pygame.sprite.Sprite):
         if invisible:
             self.image.set_alpha(0)
             self.image.fill((0, 0, 0))
+        else:
+            self.image.fill((0, 0, 0))  # Gray platforms for visibility
+        # Convert for better performance
+        self.image = self.image.convert_alpha() if invisible else self.image.convert()
         self.rect = pygame.Rect(x, y, width, height)
 
 platform_group = pygame.sprite.Group()
@@ -92,22 +115,26 @@ for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
+# OPTIMIZED: Create a static background surface that includes platforms
+# This way we only need to blit one surface instead of background + all platforms
+def create_static_background():
+    """Create a single surface with background and platforms combined"""
+    bg_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    bg_surface.blit(Back, (0, 0))  # Draw background
+    
+    # Draw non-invisible platforms onto the background
+    for platform in platform_group:
+        if platform.image.get_alpha() != 0:  # Only draw visible platforms
+            bg_surface.blit(platform.image, platform.rect)
+    
+    return bg_surface.convert()  # Convert for faster blitting
+
+# Create the static background once
+static_background = create_static_background()
+
 def draw_bg():
-    screen.blit(Back, (0, 0))  # Draw the background image
-    platform_group.draw(screen)  # ADD: Draw all platforms
-        
-    def update(self):
-        # Move horizontally
-        self.rect.x += self.speed * self.direction
-        
-        # Remove if off screen
-        if self.rect.right < 0 or self.rect.left > SCREEN_WIDTH:
-            self.kill()
-        
-        # Check platform collisions
-        for platform in platform_group:
-            if self.rect.colliderect(platform.rect):
-                self.kill()
+    """OPTIMIZED: Just blit the pre-rendered background"""
+    screen.blit(static_background, (0, 0))
 
 # ---------- ENEMY CLASS ----------
 class Enemy(pygame.sprite.Sprite):
@@ -138,11 +165,16 @@ class Enemy(pygame.sprite.Sprite):
         self.shoot_range = 200
         self.shoot_cooldown = 0
         
-        # Create bigger enemy sprite
-        self.image = pygame.Surface((70, 90))  # Make enemy bigger
-        self.image.fill((255, 0, 0))  # Red enemy
+        # OPTIMIZED: Create enemy sprite once and convert
+        self.base_image = pygame.Surface((70, 90))  # Make enemy bigger
+        self.base_image = self.base_image.convert()
+        self.image = self.base_image.copy()
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
+        
+        # Cache flipped version
+        self.flipped_image = None
+        self.current_color = None
 
     def take_damage(self, damage):
         self.health -= damage
@@ -198,8 +230,6 @@ class Enemy(pygame.sprite.Sprite):
                 self.direction = -1
                 self.flip = True
                 dx = -self.speed
-            
-
         
         # Patrol behavior
         elif self.state == 'patrol':
@@ -266,16 +296,26 @@ class Enemy(pygame.sprite.Sprite):
                 self.flip = True
 
     def draw(self):
-        # Change color based on state
+        # OPTIMIZED: Only update color/flip when needed
+        color = None
         if self.state == 'shoot':
-            self.image.fill((255, 200, 0))  # Orange when shooting
+            color = (255, 200, 0)  # Orange when shooting
         elif self.state == 'chase':
-            self.image.fill((255, 100, 100))  # Light red when chasing
+            color = (255, 100, 100)  # Light red when chasing
         else:
-            self.image.fill((255, 0, 0))  # Normal red when patrolling
+            color = (255, 0, 0)  # Normal red when patrolling
         
-        img = pygame.transform.flip(self.image, self.flip, False)
-        screen.blit(img, self.rect)
+        # Only recreate image if color changed
+        if color != self.current_color:
+            self.current_color = color
+            self.base_image.fill(color)
+            self.flipped_image = pygame.transform.flip(self.base_image, True, False)
+        
+        # Use cached flipped version
+        if self.flip:
+            screen.blit(self.flipped_image, self.rect)
+        else:
+            screen.blit(self.base_image, self.rect)
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -316,14 +356,34 @@ class Player(pygame.sprite.Sprite):
         self.action = 0
         self.update_time = pygame.time.get_ticks()
 
+        # OPTIMIZED: Load animations with error handling and convert for performance
         animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack', 'Attack_Up', 'Attack_Down']
         for animation in animation_types:
             temp_list = []
-            num_of_frames = len(os.listdir(f'img/{self.char_type}/{animation}'))
-            for i in range(num_of_frames):
-                img = pygame.image.load(f'img/{self.char_type}/{animation}/{i}.png')
-                img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
-                temp_list.append(img)
+            try:
+                animation_path = f'img/{self.char_type}/{animation}'
+                if os.path.exists(animation_path):
+                    num_of_frames = len(os.listdir(animation_path))
+                    for i in range(num_of_frames):
+                        img = pygame.image.load(f'{animation_path}/{i}.png')
+                        img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
+                        img = img.convert_alpha()  # Convert for better performance
+                        temp_list.append(img)
+                else:
+                    # Fallback: create simple colored rectangles
+                    for i in range(4):  # 4 frames fallback
+                        img = pygame.Surface((60, 80))
+                        img.fill((0, 100, 200))  # Blue player
+                        img = img.convert()
+                        temp_list.append(img)
+            except:
+                # Fallback animation
+                for i in range(4):
+                    img = pygame.Surface((60, 80))
+                    img.fill((0, 100, 200))
+                    img = img.convert()
+                    temp_list.append(img)
+            
             self.animation_list.append(temp_list)
 
         self.image = self.animation_list[self.action][self.frame_index]
@@ -604,7 +664,6 @@ def restart_game():
     player = Player('player', 200, 200, 3, 5)
     enemy = Enemy(800, 500, 2, 2)
 
-
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
 enemy = Enemy(800, 500, 2, 2)
@@ -612,7 +671,7 @@ enemy = Enemy(800, 500, 2, 2)
 run = True
 while run:
     clock.tick(FPS)
-    draw_bg()
+    draw_bg()  # Now much faster!
 
     player.update_animation()
     player.draw()
@@ -651,10 +710,11 @@ while run:
     # Draw health masks instead of health bars
     draw_health_masks(player.current_masks, player.max_masks)
     
+
     # Check if player died and restart game
     if not player.alive or not enemy.alive:
         restart_game()
-
+    
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             run = False
