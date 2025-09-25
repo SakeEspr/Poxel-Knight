@@ -605,7 +605,7 @@ while run:
     draw_health_bar(50, 100, enemy.health, enemy.max_health, label="Enemy")
     
     # Check if player died and restart game
-    if not player.alive or not enemy.alive:
+    if not player.alive or not enemy.alive :
         restart_game()
 
     for event in pygame.event.get():
