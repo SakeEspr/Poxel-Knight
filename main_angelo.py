@@ -15,7 +15,7 @@ clock = pygame.time.Clock()
 # ---------- GAME VARIABLES ----------
 GRAVITY = 0.75
 DASH_SPEED = 12
-DASH_TIME = 10
+DASH_TIME = 12
 DASH_COOLDOWN = 40
 
 JUMP_SPEED = -11
@@ -72,8 +72,8 @@ platform_group = pygame.sprite.Group()
 
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
-    (100, 530, 240, 20),                     # Platform 1
-    (800, 530, 240, 20)
+    (0, 530, 300, 20),                     # Platform 1
+    (900, 530, 300, 20)
 ]
 
 for platform_data in platforms:
@@ -83,6 +83,19 @@ for platform_data in platforms:
 def draw_bg():
     screen.blit(Back, (0, 0))  # Draw the background image
     platform_group.draw(screen)  # ADD: Draw all platforms
+
+# ---------- PROJECTILE CLASS ----------
+class Projectile(pygame.sprite.Sprite):
+    def __init__(self, x, y, direction, speed=6):
+        super().__init__()
+        self.direction = direction
+        self.speed = speed
+        
+        # Create projectile sprite
+        self.image = pygame.Surface((12, 6))
+        self.image.fill((255, 255, 0))  # Yellow projectile
+        self.rect = self.image.get_rect()
+        self.rect.center = (x, y)
         
     def update(self):
         # Move horizontally
@@ -102,7 +115,7 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed  # Make enemy faster
+        self.speed = speed # Make enemy faster
         self.direction = -1
         self.flip = False
         
@@ -121,13 +134,11 @@ class Enemy(pygame.sprite.Sprite):
         self.jump_cooldown = 0
         
         # AI states
-        self.state = 'patrol'  # 'patrol', 'chase', 'shoot'
+        self.state = 'patrol'  # 'patrol', 'chase'
         self.detection_range = 250
-        self.shoot_range = 200
-        self.shoot_cooldown = 0
         
         # Create bigger enemy sprite
-        self.image = pygame.Surface((70, 90))  # Make enemy bigger
+        self.image = pygame.Surface((55, 70))  # Make enemy bigger
         self.image.fill((255, 0, 0))  # Red enemy
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
@@ -150,33 +161,17 @@ class Enemy(pygame.sprite.Sprite):
         player_height_diff = self.rect.centery - player.rect.centery
         
         # Update cooldowns
-        if self.shoot_cooldown > 0:
-            self.shoot_cooldown -= 1
         if self.jump_cooldown > 0:
             self.jump_cooldown -= 1
         
         # State machine
-        if distance_to_player <= self.shoot_range and self.shoot_cooldown == 0:
-            self.state = 'shoot'
-        elif distance_to_player <= self.detection_range:
+        if distance_to_player <= self.detection_range:
             self.state = 'chase'
         else:
             self.state = 'patrol'
         
-        # Shooting behavior
-        if self.state == 'shoot':
-            self.shoot_cooldown = 75  # Faster shooting (1.25 seconds at 60 FPS)
-            
-            # Face player
-            if player.rect.centerx > self.rect.centerx:
-                self.direction = 1
-                self.flip = False
-            else:
-                self.direction = -1
-                self.flip = True
-        
         # Chase behavior
-        elif self.state == 'chase':
+        if self.state == 'chase':
             # Face player
             if player.rect.centerx > self.rect.centerx:
                 self.direction = 1
@@ -188,7 +183,6 @@ class Enemy(pygame.sprite.Sprite):
                 dx = -self.speed
             
 
-        
         # Patrol behavior
         elif self.state == 'patrol':
             if self.rect.centerx <= self.start_x - self.patrol_distance:
@@ -255,9 +249,7 @@ class Enemy(pygame.sprite.Sprite):
 
     def draw(self):
         # Change color based on state
-        if self.state == 'shoot':
-            self.image.fill((255, 200, 0))  # Orange when shooting
-        elif self.state == 'chase':
+        if self.state == 'chase':
             self.image.fill((255, 100, 100))  # Light red when chasing
         else:
             self.image.fill((255, 0, 0))  # Normal red when patrolling
@@ -549,13 +541,19 @@ def check_combat(player, enemy):
             
             # Prevent multiple hits from same attack
             player.attack_rect = None
+    
+    # Enemy collision damage (only if not dashing)
+    if not player.dashing and enemy.alive and player.alive:
+        if player.rect.colliderect(enemy.rect):
+            player.take_damage(1)  # Contact damage per frame
+    
+
 
 # ---------- GAME RESTART FUNCTION ----------
 def restart_game():
     global player, enemy
     player = Player('player', 200, 200, 3, 5)
     enemy = Enemy(800, 500, 2, 2)
-
 
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
@@ -596,7 +594,6 @@ while run:
         enemy.ai_behavior(player)
         enemy.draw()
     
-
     # Check combat
     check_combat(player, enemy)
     
