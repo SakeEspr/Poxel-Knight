@@ -110,6 +110,7 @@ platform_group = pygame.sprite.Group()
 
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor only
+    (0,0, SCREEN_WIDTH, 1, True)
 ]
 
 for platform_data in platforms:
@@ -144,7 +145,7 @@ class Enemy(pygame.sprite.Sprite):
         self.alive = True
         self.speed = speed * 2.5  # Make enemy 20% faster than player
         self.direction = -1
-        self.flip = True  # Start flipped since direction is -1
+        self.flip = False  
         
         # Health
         self.max_health = 120
