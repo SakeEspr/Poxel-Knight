@@ -46,7 +46,7 @@ BLACK = (0, 0, 0)
 mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
 mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
 # Scale masks to appropriate size (adjust scale as needed)
-MASK_SCALE = 2  # Adjust this value to make masks bigger/smaller
+MASK_SCALE = 1.5  # Adjust this value to make masks bigger/smaller
 mask_filled = pygame.transform.scale(mask_filled, 
     (int(mask_filled.get_width() * MASK_SCALE), 
      int(mask_filled.get_height() * MASK_SCALE)))
