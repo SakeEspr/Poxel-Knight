@@ -143,7 +143,7 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed * 1  # Make enemy 20% faster than player
+        self.speed = speed * 2.3  # Make enemy 20% faster than player
         self.direction = -1
         self.flip = False  # Start flipped since direction is -1
         
