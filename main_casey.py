@@ -54,7 +54,7 @@ try:
     mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
     mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
     # Scale masks to appropriate size (adjust scale as needed)
-    MASK_SCALE = 2  # Adjust this value to make masks bigger/smaller
+    MASK_SCALE = 1.5  # Adjust this value to make masks bigger/smaller
     mask_filled = pygame.transform.scale(mask_filled, 
         (int(mask_filled.get_width() * MASK_SCALE), 
          int(mask_filled.get_height() * MASK_SCALE)))
@@ -791,7 +791,7 @@ while run:
     draw_health_masks(player.current_masks, player.max_masks)
     
     # Check if player died and restart game
-    if not player.alive:
+    if not player.alive or not enemy.alive:
         restart_game()
 
     for event in pygame.event.get():
