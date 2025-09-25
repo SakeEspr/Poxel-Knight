@@ -226,16 +226,29 @@ class Enemy(pygame.sprite.Sprite):
         # Update cooldowns
         if self.jump_cooldown > 0:
             self.jump_cooldown -= 1
+
+        # Patrol behavior
+        elif self.state == 'patrol':
+            if self.rect.centerx <= self.start_x - self.patrol_distance:
+                self.direction = 1
+                self.flip = False
+            elif self.rect.centerx >= self.start_x + self.patrol_distance:
+                self.direction = -1
+                self.flip = True
+            
+            dx = self.speed * self.direction
+            
+            # Random jump while patrolling (small chance)
+            if (
+                not self.in_air
+                and self.jump_cooldown == 0
+                and random.random() < ENEMY_JUMP_CHANCE
+    ):
+                if abs(dx) > 0:  # Only jump if moving
+                    self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
+                    self.in_air = True
+                    self.jump_cooldown = 60  # cooldown in frames   
         
-        # Update jump timer and handle jumping
-        if self.jump_timer > 0:
-            self.jump_timer -= 1
-        elif not self.in_air and self.jump_timer <= 0:
-            # Jump every 3 seconds
-            self.vel_y = JUMP_SPEED * 0.9  # Slightly weaker jump
-            self.in_air = True
-            self.is_jumping = True
-            self.jump_timer = 180  # Reset to 3 seconds
         
         # State machine
         if distance_to_player <= self.detection_range:
@@ -805,7 +818,7 @@ while run:
     draw_health_masks(player.current_masks, player.max_masks)
     
     # Check if player died and restart game
-    if not player.alive:
+    if not player.alive or not enemy.alive:
         restart_game()
 
     for event in pygame.event.get():
