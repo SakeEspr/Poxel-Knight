@@ -54,7 +54,7 @@ try:
     mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
     mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
     # Scale masks to appropriate size (adjust scale as needed)
-    MASK_SCALE = 1.5  # Adjust this value to make masks bigger/smaller
+    MASK_SCALE = 2  # Adjust this value to make masks bigger/smaller
     mask_filled = pygame.transform.scale(mask_filled, 
         (int(mask_filled.get_width() * MASK_SCALE), 
          int(mask_filled.get_height() * MASK_SCALE)))
@@ -108,7 +108,8 @@ platform_group = pygame.sprite.Group()
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
     (100, 530, 240, 20),                     # Platform 1
-    (800, 530, 240, 20)
+    (800, 530, 240, 20),
+    (0, 0, SCREEN_WIDTH, 2)
 ]
 
 for platform_data in platforms:
@@ -337,6 +338,16 @@ class Player(pygame.sprite.Sprite):
         self.in_air = True
         self.jump_pressed = False
         self.jump_timer = 0
+        
+        # Wall jump mechanics
+        self.wall_sliding = False
+        self.wall_side = 0  # -1 for left wall, 1 for right wall, 0 for no wall
+        self.wall_slide_speed = 2  # Speed when sliding down wall
+        
+        # Wall jump mechanics
+        self.wall_sliding = False
+        self.wall_side = 0  # -1 for left wall, 1 for right wall, 0 for no wall
+        self.wall_slide_speed = 2  # Speed when sliding down wall
 
         # Dash
         self.dashing = False
@@ -486,26 +497,48 @@ class Player(pygame.sprite.Sprite):
                 self.flip = False
                 self.direction = 1
 
-            # Hold-to-jump
+            # Wall jump logic
             if keys[pygame.K_SPACE]:
                 if not self.jump_pressed:
                     self.jump_pressed = True
                     if not self.in_air:
+                        # Ground jump
                         self.vel_y = JUMP_SPEED
                         self.in_air = True
                         self.jump_timer = MAX_JUMP_TIME
+                    elif self.wall_sliding:
+                        # Wall jump
+                        self.vel_y = JUMP_SPEED
+                        # Push away from wall
+                        if self.wall_side == -1:  # Left wall
+                            dx = self.speed * 1.5  # Jump right with extra force
+                            self.flip = False
+                            self.direction = 1
+                        elif self.wall_side == 1:  # Right wall
+                            dx = -self.speed * 1.5  # Jump left with extra force
+                            self.flip = True
+                            self.direction = -1
+                        self.wall_sliding = False
+                        self.wall_side = 0
+                        self.jump_timer = MAX_JUMP_TIME
                 else:
-                    if self.jump_timer > 0:
+                    if self.jump_timer > 0 and not self.wall_sliding:
                         self.vel_y += JUMP_HOLD_FORCE
                         self.jump_timer -= 1
             else:
                 self.jump_pressed = False
                 self.jump_timer = 0
 
-            # Gravity
-            self.vel_y += GRAVITY
-            if self.vel_y > 10:
-                self.vel_y = 10
+            # Apply gravity (reduced when wall sliding)
+            if self.wall_sliding:
+                # Slower fall when wall sliding
+                self.vel_y += GRAVITY * 0.3
+                if self.vel_y > self.wall_slide_speed:
+                    self.vel_y = self.wall_slide_speed
+            else:
+                self.vel_y += GRAVITY
+                if self.vel_y > 10:
+                    self.vel_y = 10
             dy += self.vel_y
 
         # Dash cooldown
@@ -538,14 +571,55 @@ class Player(pygame.sprite.Sprite):
 
         # Horizontal collisions
         self.rect.x += dx
+        
+        # Wall detection for wall jumping
+        wall_detected = False
+        
         # Skip platform collision during dash to allow dashing through enemy
         if not self.dashing:
             for platform in platform_group:
                 if self.rect.colliderect(platform.rect):
                     if dx > 0:
                         self.rect.right = platform.rect.left
+                        # Detect right wall
+                        if self.in_air and self.vel_y > 0:
+                            wall_detected = True
+                            self.wall_side = 1
                     elif dx < 0:
                         self.rect.left = platform.rect.right
+                        # Detect left wall
+                        if self.in_air and self.vel_y > 0:
+                            wall_detected = True
+                            self.wall_side = -1
+        
+        # Check screen boundaries for wall jumping
+        if self.in_air and self.vel_y > 0:
+            if self.rect.left <= 0 and dx < 0:
+                self.rect.left = 0
+                wall_detected = True
+                self.wall_side = -1
+            elif self.rect.right >= SCREEN_WIDTH and dx > 0:
+                self.rect.right = SCREEN_WIDTH
+                wall_detected = True
+                self.wall_side = 1
+        else:
+            # Normal screen boundary collision when not wall jumping
+            if self.rect.left < 0:
+                self.rect.left = 0
+            elif self.rect.right > SCREEN_WIDTH:
+                self.rect.right = SCREEN_WIDTH
+        
+        # Update wall sliding state
+        if wall_detected and self.in_air and self.vel_y > 0:
+            # Check if player is moving toward the wall or holding toward wall
+            if (self.wall_side == -1 and moving_left) or (self.wall_side == 1 and moving_right):
+                self.wall_sliding = True
+            else:
+                self.wall_sliding = False
+                self.wall_side = 0
+        else:
+            self.wall_sliding = False
+            self.wall_side = 0
 
         # Vertical collisions
         self.rect.y += dy
@@ -557,6 +631,9 @@ class Player(pygame.sprite.Sprite):
                     self.vel_y = 0
                     self.in_air = False
                     self.jump_timer = 0
+                    # Reset wall sliding when touching ground
+                    self.wall_sliding = False
+                    self.wall_side = 0
                 elif self.vel_y < 0:
                     self.rect.top = platform.rect.bottom
                     self.vel_y = 0
@@ -686,6 +763,9 @@ while run:
                 player.update_action(5)
         elif player.dashing:
             player.update_action(4)
+        elif player.wall_sliding:
+            # Use idle animation for wall sliding (could be a dedicated wall slide animation)
+            player.update_action(0)
         elif player.in_air:
             if player.vel_y < 0:
                 player.update_action(2)
@@ -710,11 +790,10 @@ while run:
     # Draw health masks instead of health bars
     draw_health_masks(player.current_masks, player.max_masks)
     
-
     # Check if player died and restart game
     if not player.alive or not enemy.alive:
         restart_game()
-    
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             run = False
