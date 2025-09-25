@@ -1,5 +1,6 @@
 import pygame
 import os
+import random
 
 pygame.init()
 
@@ -17,6 +18,8 @@ GRAVITY = 0.75
 DASH_SPEED = 12
 DASH_TIME = 10
 DASH_COOLDOWN = 40
+
+ENEMY_JUMP_CHANCE = 0.03   # 1% chance each frame while patrolling
 
 JUMP_SPEED = -11
 MAX_JUMP_TIME = 15
@@ -142,12 +145,12 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed  # Make enemy faster
+        self.speed = speed * 2.7 # Make enemy faster
         self.direction = -1
         self.flip = False
         
         # Health
-        self.max_health = 120  # Make enemy stronger
+        self.max_health = 200  # Make enemy stronger
         self.health = self.max_health
         
         # Movement
@@ -244,11 +247,15 @@ class Enemy(pygame.sprite.Sprite):
             dx = self.speed * self.direction
             
             # Random jump while patrolling (small chance)
-            if not self.in_air and self.jump_cooldown == 0 and pygame.time.get_ticks() % 300 == 0:
+            if (
+                not self.in_air
+                and self.jump_cooldown == 0
+                and random.random() < ENEMY_JUMP_CHANCE
+    ):
                 if abs(dx) > 0:  # Only jump if moving
                     self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
                     self.in_air = True
-                    self.jump_cooldown = 60
+                    self.jump_cooldown = 60  # cooldown in frames   
         
         # Apply gravity
         self.vel_y += GRAVITY
