@@ -15,11 +15,11 @@ clock = pygame.time.Clock()
 
 # ---------- GAME VARIABLES ----------
 GRAVITY = 0.75
-DASH_SPEED = 12
-DASH_TIME = 10
+DASH_SPEED = 14
+DASH_TIME = 12
 DASH_COOLDOWN = 40
 
-ENEMY_JUMP_CHANCE = 0.03   # 1% chance each frame while patrolling
+ENEMY_JUMP_CHANCE = 0.03   #% chance each frame while patrolling
 
 JUMP_SPEED = -11
 MAX_JUMP_TIME = 15
@@ -92,7 +92,7 @@ def draw_health_masks(current_masks, max_masks=5):
         else:
             screen.blit(mask_empty, (x, y))
 
-# ADD: PLATFORM CLASS ----------
+ #PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, invisible=False):
         super().__init__()
@@ -117,8 +117,7 @@ for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
-# OPTIMIZED: Create a static background surface that includes platforms
-# This way we only need to blit one surface instead of background + all platforms
+
 def create_static_background():
     """Create a single surface with background and platforms combined"""
     bg_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -143,7 +142,7 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed * 2.3  # Make enemy 20% faster than player
+        self.speed = speed * 2.5  # Make enemy 20% faster than player
         self.direction = -1
         self.flip = False  # Start flipped since direction is -1
         
@@ -154,7 +153,7 @@ class Enemy(pygame.sprite.Sprite):
         # Movement
         self.vel_y = 0
         self.in_air = True
-        self.patrol_distance = 200
+        self.patrol_distance = 500
         self.start_x = x
         
         # Jumping
@@ -166,6 +165,7 @@ class Enemy(pygame.sprite.Sprite):
         # AI states
         self.state = 'patrol'  # 'patrol', 'chase'
         self.detection_range = 250
+        self.reaction_time = 45
         
         # Animation system
         self.animation_list = []
@@ -251,11 +251,18 @@ class Enemy(pygame.sprite.Sprite):
                     self.jump_cooldown = 60  # cooldown in frames   
         
         
-        # State machine
+
         if distance_to_player <= self.detection_range:
-            self.state = 'chase'
+            if self.state == 'patrol':
+                self.detection_timer += 1
+                if self.detection_timer >= self.reaction_time:
+                    self.state = 'chase'
+                    self.detection_timer = 0
         else:
             self.state = 'patrol'
+            self.detection_timer = 0  # Reset timer when player leaves range
+
+
         
         # Calculate movement speed (90% when jumping)
         current_speed = self.speed * 0.9 if self.is_jumping else self.speed
@@ -447,9 +454,9 @@ class Player(pygame.sprite.Sprite):
 
     def take_damage(self, damage):
         # Only take damage if not in invincibility frames
-        if self.damage_cooldown == 0:
+        if self.damage_cooldown == 0 and not self.dashing:
             self.current_masks -= 1  # Lose one mask
-            self.damage_cooldown = 60  # 1 second of invincibility at 60 FPS
+            self.damage_cooldown = 90  # 1 second of invincibility at 60 FPS
             
             if self.current_masks <= 0:
                 self.current_masks = 0
