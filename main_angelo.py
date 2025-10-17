@@ -770,6 +770,27 @@ def draw_enemy_health_bar(enemy):
         health_width = int(bar_width * (enemy.health / enemy.max_health))
         pygame.draw.rect(screen, GREEN, (bar_x, bar_y, health_width, bar_height))
 
+# ---------- MAIN MENU ----------
+def draw_main_menu():
+    """Draw the main menu screen"""
+    try:
+        main_menu_img = pygame.image.load('img/BG/main_screen.png')
+        main_menu_img = pygame.transform.scale(main_menu_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        main_menu_img = main_menu_img.convert()
+        screen.blit(main_menu_img, (0, 0))
+    except pygame.error:
+        # Fallback if image doesn't exist
+        screen.fill((50, 50, 100))
+        font = pygame.font.Font(None, 74)
+        text = font.render('POXEL', True, WHITE)
+        text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        screen.blit(text, text_rect)
+        
+        font_small = pygame.font.Font(None, 36)
+        text_small = font_small.render('Click anywhere to start', True, WHITE)
+        text_rect_small = text_small.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
+        screen.blit(text_small, text_rect_small)
+
 # ---------- GAME RESTART FUNCTION ----------
 def restart_game():
     global player, enemy
@@ -780,54 +801,61 @@ def restart_game():
 player = Player('player', 200, 200, 3, 5)
 enemy = Enemy(800, 500, 2, 2)
 
+# Game state
+game_state = 'menu'  # 'menu' or 'playing'
+
 run = True
 while run:
     clock.tick(FPS)
-    draw_bg()  # Now much faster!
+    
+    if game_state == 'menu':
+        draw_main_menu()
+    elif game_state == 'playing':
+        draw_bg()  # Now much faster!
 
-    player.update_animation()
-    player.draw()
+        player.update_animation()
+        player.draw()
 
-    if player.alive:
-        if player.attacking:
-            if player.attack_type == 'up':
-                player.update_action(6)
-            elif player.attack_type == 'down':
-                player.update_action(7)
+        if player.alive:
+            if player.attacking:
+                if player.attack_type == 'up':
+                    player.update_action(6)
+                elif player.attack_type == 'down':
+                    player.update_action(7)
+                else:
+                    player.update_action(5)
+            elif player.dashing:
+                player.update_action(4)
+            elif player.wall_sliding:
+                # Use idle animation for wall sliding (could be a dedicated wall slide animation)
+                player.update_action(0)
+            elif player.in_air:
+                if player.vel_y < 0:
+                    player.update_action(2)
+                else:
+                    player.update_action(3)
+            elif moving_left or moving_right:
+                player.update_action(1)
             else:
-                player.update_action(5)
-        elif player.dashing:
-            player.update_action(4)
-        elif player.wall_sliding:
-            # Use idle animation for wall sliding (could be a dedicated wall slide animation)
-            player.update_action(0)
-        elif player.in_air:
-            if player.vel_y < 0:
-                player.update_action(2)
-            else:
-                player.update_action(3)
-        elif moving_left or moving_right:
-            player.update_action(1)
-        else:
-            player.update_action(0)
+                player.update_action(0)
 
-        player.move(moving_left, moving_right)
+            player.move(moving_left, moving_right)
 
-    # Update enemy
-    if enemy.alive:
-        enemy.ai_behavior(player)
-        enemy.draw()
-        draw_enemy_health_bar(enemy)  # Draw enemy health bar
-    
-    # Check combat
-    check_combat(player, enemy)
-    
-    # Draw health masks instead of health bars
-    draw_health_masks(player.current_masks, player.max_masks)
-    
-    # Check if player died and restart game
-    if not player.alive or not enemy.alive:
-        restart_game()
+        # Update enemy
+        if enemy.alive:
+            enemy.ai_behavior(player)
+            enemy.draw()
+            draw_enemy_health_bar(enemy)  # Draw enemy health bar
+        
+        # Check combat
+        check_combat(player, enemy)
+        
+        # Draw health masks instead of health bars
+        draw_health_masks(player.current_masks, player.max_masks)
+        
+        # Check if player died and restart game
+        if not player.alive or not enemy.alive:
+            restart_game()
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -846,7 +874,12 @@ while run:
                 moving_right = False
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
-                player.attack()
+                if game_state == 'menu':
+                    # Start game on click
+                    game_state = 'playing'
+                    restart_game()
+                elif game_state == 'playing':
+                    player.attack()
 
     pygame.display.update()
 

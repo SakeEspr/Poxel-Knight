@@ -57,7 +57,7 @@ try:
     mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
     mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
     # Scale masks to appropriate size (adjust scale as needed)
-    MASK_SCALE = 1.5  # Adjust this value to make masks bigger/smaller
+    MASK_SCALE = 2  # Adjust this value to make masks bigger/smaller
     mask_filled = pygame.transform.scale(mask_filled, 
         (int(mask_filled.get_width() * MASK_SCALE), 
          int(mask_filled.get_height() * MASK_SCALE)))
@@ -92,7 +92,7 @@ def draw_health_masks(current_masks, max_masks=5):
         else:
             screen.blit(mask_empty, (x, y))
 
-# ADD: PLATFORM CLASS ----------
+ #PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, invisible=False):
         super().__init__()
@@ -117,8 +117,6 @@ for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
-# OPTIMIZED: Create a static background surface that includes platforms
-# This way we only need to blit one surface instead of background + all platforms
 
 def create_static_background():
     """Create a single surface with background and platforms combined"""
@@ -144,7 +142,7 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed * 2.5 # Make enemy 20% faster than player
+        self.speed = speed * 2.5  # Make enemy 20% faster than player
         self.direction = -1
         self.flip = False  # Start flipped since direction is -1
         
@@ -253,7 +251,7 @@ class Enemy(pygame.sprite.Sprite):
                     self.jump_cooldown = 60  # cooldown in frames   
         
         
-        # state machine
+
         if distance_to_player <= self.detection_range:
             if self.state == 'patrol':
                 self.detection_timer += 1
@@ -265,6 +263,7 @@ class Enemy(pygame.sprite.Sprite):
             self.detection_timer = 0  # Reset timer when player leaves range
 
 
+        
         # Calculate movement speed (90% when jumping)
         current_speed = self.speed * 0.9 if self.is_jumping else self.speed
         
@@ -462,7 +461,7 @@ class Player(pygame.sprite.Sprite):
             if self.current_masks <= 0:
                 self.current_masks = 0
                 self.alive = False
-                
+
     def attack(self):
         if self.attack_cooldown == 0 and not self.dashing:
             keys = pygame.key.get_pressed()
