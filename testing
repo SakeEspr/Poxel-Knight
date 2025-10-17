@@ -15,11 +15,11 @@ clock = pygame.time.Clock()
 
 # ---------- GAME VARIABLES ----------
 GRAVITY = 0.75
-DASH_SPEED = 14
-DASH_TIME = 12
+DASH_SPEED = 12
+DASH_TIME = 10
 DASH_COOLDOWN = 40
 
-ENEMY_JUMP_CHANCE = 0.03   #% chance each frame while patrolling
+ENEMY_JUMP_CHANCE = 0.03   # 1% chance each frame while patrolling
 
 JUMP_SPEED = -11
 MAX_JUMP_TIME = 15
@@ -92,7 +92,7 @@ def draw_health_masks(current_masks, max_masks=5):
         else:
             screen.blit(mask_empty, (x, y))
 
- #PLATFORM CLASS ----------
+# ADD: PLATFORM CLASS ----------
 class Platform(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, invisible=False):
         super().__init__()
@@ -101,7 +101,7 @@ class Platform(pygame.sprite.Sprite):
             self.image.set_alpha(0)
             self.image.fill((0, 0, 0))
         else:
-            self.image.fill((100, 100, 100))  # Gray platforms for visibility
+            self.image.fill((0, 0, 0))  # Gray platforms for visibility
         # Convert for better performance
         self.image = self.image.convert_alpha() if invisible else self.image.convert()
         self.rect = pygame.Rect(x, y, width, height)
@@ -109,15 +109,18 @@ class Platform(pygame.sprite.Sprite):
 platform_group = pygame.sprite.Group()
 
 platforms = [
-    (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor only
-    (0, 0, SCREEN_WIDTH, 1, True)
+    (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor
+    (100, 530, 240, 20),                     # Platform 1
+    (800, 530, 240, 20),
+    (0, 0, SCREEN_WIDTH, 2)
 ]
 
 for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
-
+# OPTIMIZED: Create a static background surface that includes platforms
+# This way we only need to blit one surface instead of background + all platforms
 def create_static_background():
     """Create a single surface with background and platforms combined"""
     bg_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -142,70 +145,40 @@ class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed * 2.5  # Make enemy 20% faster than player
+        self.speed = speed * 2.7 # Make enemy faster
         self.direction = -1
-        self.flip = False  # Start flipped since direction is -1
+        self.flip = False
         
         # Health
-        self.max_health = 120
+        self.max_health = 200  # Make enemy stronger
         self.health = self.max_health
         
         # Movement
         self.vel_y = 0
         self.in_air = True
-        self.patrol_distance = 500
+        self.patrol_distance = 200
         self.start_x = x
         
         # Jumping
         self.can_jump = True
         self.jump_cooldown = 0
-        self.jump_timer = 180  # 3 seconds at 60 FPS
-        self.is_jumping = False
         
         # AI states
-        self.state = 'patrol'  # 'patrol', 'chase'
+        self.state = 'patrol'  # 'patrol', 'chase', 'shoot'
         self.detection_range = 250
-        self.reaction_time = 60
+        self.shoot_range = 200
+        self.shoot_cooldown = 0
         
-        # Animation system
-        self.animation_list = []
-        self.frame_index = 0
-        self.action = 0
-        self.update_time = pygame.time.get_ticks()
-        
-        # Load animations with error handling and convert for performance
-        animation_types = ['Idle', 'Run']
-        for animation in animation_types:
-            temp_list = []
-            try:
-                animation_path = f'img/enemy/{animation}'
-                if os.path.exists(animation_path):
-                    num_of_frames = len(os.listdir(animation_path))
-                    for i in range(num_of_frames):
-                        img = pygame.image.load(f'{animation_path}/{i}.png')
-                        img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
-                        img = img.convert_alpha()  # Convert for better performance
-                        temp_list.append(img)
-                else:
-                    # Fallback: create simple colored rectangles
-                    for i in range(4):  # 4 frames fallback
-                        img = pygame.Surface((70, 90))
-                        img.fill((255, 0, 0))  # Red enemy
-                        img = img.convert()
-                        temp_list.append(img)
-            except:
-                # Fallback animation
-                for i in range(4):
-                    img = pygame.Surface((70, 90))
-                    img.fill((255, 0, 0))
-                    img = img.convert()
-                    temp_list.append(img)
-            
-            self.animation_list.append(temp_list)
-
-        self.image = self.animation_list[self.action][self.frame_index]
+        # OPTIMIZED: Create enemy sprite once and convert
+        self.base_image = pygame.Surface((70, 90))  # Make enemy bigger
+        self.base_image = self.base_image.convert()
+        self.image = self.base_image.copy()
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
+        
+        # Cache flipped version
+        self.flipped_image = None
+        self.current_color = None
 
     def take_damage(self, damage):
         self.health -= damage
@@ -225,9 +198,43 @@ class Enemy(pygame.sprite.Sprite):
         player_height_diff = self.rect.centery - player.rect.centery
         
         # Update cooldowns
+        if self.shoot_cooldown > 0:
+            self.shoot_cooldown -= 1
         if self.jump_cooldown > 0:
             self.jump_cooldown -= 1
-
+        
+        # State machine
+        if distance_to_player <= self.shoot_range and self.shoot_cooldown == 0:
+            self.state = 'shoot'
+        elif distance_to_player <= self.detection_range:
+            self.state = 'chase'
+        else:
+            self.state = 'patrol'
+        
+        # Shooting behavior
+        if self.state == 'shoot':
+            self.shoot_cooldown = 75  # Faster shooting (1.25 seconds at 60 FPS)
+            
+            # Face player
+            if player.rect.centerx > self.rect.centerx:
+                self.direction = 1
+                self.flip = False
+            else:
+                self.direction = -1
+                self.flip = True
+        
+        # Chase behavior
+        elif self.state == 'chase':
+            # Face player
+            if player.rect.centerx > self.rect.centerx:
+                self.direction = 1
+                self.flip = False
+                dx = self.speed
+            else:
+                self.direction = -1
+                self.flip = True
+                dx = -self.speed
+        
         # Patrol behavior
         elif self.state == 'patrol':
             if self.rect.centerx <= self.start_x - self.patrol_distance:
@@ -249,48 +256,6 @@ class Enemy(pygame.sprite.Sprite):
                     self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
                     self.in_air = True
                     self.jump_cooldown = 60  # cooldown in frames   
-        
-        
-
-        if distance_to_player <= self.detection_range:
-            if self.state == 'patrol':
-                self.detection_timer += 1
-                if self.detection_timer >= self.reaction_time:
-                    self.state = 'chase'
-                    self.detection_timer = 0
-        else:
-            self.state = 'patrol'
-            self.detection_timer = 0  # Reset timer when player leaves range
-
-
-        
-        # Calculate movement speed (90% when jumping)
-        current_speed = self.speed * 0.9 if self.is_jumping else self.speed
-        
-        # Chase behavior
-        if self.state == 'chase':
-            # Face player (reversed flip logic)
-            if player.rect.centerx > self.rect.centerx:
-                self.direction = 1
-                self.flip = True  # Flipped from original
-                dx = current_speed
-            else:
-                self.direction = -1
-                self.flip = False  # Flipped from original
-                dx = -current_speed
-        
-        # Patrol behavior
-        elif self.state == 'patrol':
-            if self.rect.centerx <= self.start_x - self.patrol_distance:
-                self.direction = 1
-                self.flip = True  # Flipped from original
-            elif self.rect.centerx >= self.start_x + self.patrol_distance:
-                self.direction = -1
-                self.flip = False  # Flipped from original
-            
-            dx = current_speed * self.direction
-            
-            # Random jump while patrolling (removed old jump logic since we now have timed jumps)
         
         # Apply gravity
         self.vel_y += GRAVITY
@@ -322,7 +287,6 @@ class Enemy(pygame.sprite.Sprite):
                     self.rect.bottom = platform.rect.top
                     self.vel_y = 0
                     self.in_air = False
-                    self.is_jumping = False  # Reset jumping state when landing
                 elif self.vel_y < 0:
                     self.rect.top = platform.rect.bottom
                     self.vel_y = 0
@@ -339,40 +303,27 @@ class Enemy(pygame.sprite.Sprite):
                 self.direction = -1
                 self.flip = True
 
-    def update_animation(self):
-        ANIMATION_COOLDOWN = 50  # Made faster - was 100
-        
-        self.image = self.animation_list[self.action][self.frame_index]
-        if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
-            self.update_time = pygame.time.get_ticks()
-            self.frame_index += 1
-            
-            if self.frame_index >= len(self.animation_list[self.action]):
-                self.frame_index = 0
-
-    def update_action(self, new_action):
-        if new_action != self.action:
-            self.action = new_action
-            self.frame_index = 0
-            self.update_time = pygame.time.get_ticks()
-
     def draw(self):
-        # Update animation based on state
-        if self.state == 'chase' or self.state == 'patrol':
-            # Check if enemy is actually moving
-            if abs(self.speed) > 0:
-                self.update_action(1)  # Run animation
-            else:
-                self.update_action(0)  # Idle animation
+        # OPTIMIZED: Only update color/flip when needed
+        color = None
+        if self.state == 'shoot':
+            color = (255, 200, 0)  # Orange when shooting
+        elif self.state == 'chase':
+            color = (255, 100, 100)  # Light red when chasing
         else:
-            self.update_action(0)  # Idle animation
+            color = (255, 0, 0)  # Normal red when patrolling
         
-        # Update animation frame
-        self.update_animation()
+        # Only recreate image if color changed
+        if color != self.current_color:
+            self.current_color = color
+            self.base_image.fill(color)
+            self.flipped_image = pygame.transform.flip(self.base_image, True, False)
         
-        # Flip the image if needed
-        img = pygame.transform.flip(self.image, self.flip, False)
-        screen.blit(img, self.rect)
+        # Use cached flipped version
+        if self.flip:
+            screen.blit(self.flipped_image, self.rect)
+        else:
+            screen.blit(self.base_image, self.rect)
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -394,6 +345,11 @@ class Player(pygame.sprite.Sprite):
         self.in_air = True
         self.jump_pressed = False
         self.jump_timer = 0
+        
+        # Wall jump mechanics
+        self.wall_sliding = False
+        self.wall_side = 0  # -1 for left wall, 1 for right wall, 0 for no wall
+        self.wall_slide_speed = 2  # Speed when sliding down wall
         
         # Wall jump mechanics
         self.wall_sliding = False
@@ -454,9 +410,9 @@ class Player(pygame.sprite.Sprite):
 
     def take_damage(self, damage):
         # Only take damage if not in invincibility frames
-        if self.damage_cooldown == 0 and not self.dashing:
+        if self.damage_cooldown == 0:
             self.current_masks -= 1  # Lose one mask
-            self.damage_cooldown = 90  # 1 second of invincibility at 60 FPS
+            self.damage_cooldown = 60  # 1 second of invincibility at 60 FPS
             
             if self.current_masks <= 0:
                 self.current_masks = 0
@@ -558,21 +514,21 @@ class Player(pygame.sprite.Sprite):
                         self.in_air = True
                         self.jump_timer = MAX_JUMP_TIME
                     elif self.wall_sliding:
-                        # Wall jump - sends you up and to opposite side with more outward force
-                        self.vel_y = JUMP_SPEED  # Up
+                        # Wall jump
+                        self.vel_y = JUMP_SPEED
+                        # Push away from wall
                         if self.wall_side == -1:  # Left wall
-                            dx = self.speed * 4  # Go right with more force
+                            dx = self.speed * 1.5  # Jump right with extra force
                             self.flip = False
                             self.direction = 1
                         elif self.wall_side == 1:  # Right wall
-                            dx = -self.speed * 4  # Go left with more force
+                            dx = -self.speed * 1.5  # Jump left with extra force
                             self.flip = True
                             self.direction = -1
                         self.wall_sliding = False
                         self.wall_side = 0
                         self.jump_timer = MAX_JUMP_TIME
                 else:
-                    # Variable height jumping
                     if self.jump_timer > 0 and not self.wall_sliding:
                         self.vel_y += JUMP_HOLD_FORCE
                         self.jump_timer -= 1
@@ -620,39 +576,55 @@ class Player(pygame.sprite.Sprite):
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
 
-        # HORIZONTAL COLLISIONS AND WALL DETECTION (screen borders only)
+        # Horizontal collisions
         self.rect.x += dx
+        
+        # Wall detection for wall jumping
+        wall_detected = False
+        
+        # Skip platform collision during dash to allow dashing through enemy
+        if not self.dashing:
+            for platform in platform_group:
+                if self.rect.colliderect(platform.rect):
+                    if dx > 0:
+                        self.rect.right = platform.rect.left
+                        # Detect right wall
+                        if self.in_air and self.vel_y > 0:
+                            wall_detected = True
+                            self.wall_side = 1
+                    elif dx < 0:
+                        self.rect.left = platform.rect.right
+                        # Detect left wall
+                        if self.in_air and self.vel_y > 0:
+                            wall_detected = True
+                            self.wall_side = -1
         
         # Check screen boundaries for wall jumping
         if self.in_air and self.vel_y > 0:
-            if self.rect.left <= 0:
+            if self.rect.left <= 0 and dx < 0:
                 self.rect.left = 0
-                # Check if player is moving toward the left wall
-                if moving_left:
-                    self.wall_sliding = True
-                    self.wall_side = -1
-                else:
-                    self.wall_sliding = False
-                    self.wall_side = 0
-            elif self.rect.right >= SCREEN_WIDTH:
+                wall_detected = True
+                self.wall_side = -1
+            elif self.rect.right >= SCREEN_WIDTH and dx > 0:
                 self.rect.right = SCREEN_WIDTH
-                # Check if player is moving toward the right wall
-                if moving_right:
-                    self.wall_sliding = True
-                    self.wall_side = 1
-                else:
-                    self.wall_sliding = False
-                    self.wall_side = 0
-            else:
-                # Not touching any walls
-                self.wall_sliding = False
-                self.wall_side = 0
+                wall_detected = True
+                self.wall_side = 1
         else:
-            # Normal screen boundary collision when not in air or not falling
+            # Normal screen boundary collision when not wall jumping
             if self.rect.left < 0:
                 self.rect.left = 0
             elif self.rect.right > SCREEN_WIDTH:
                 self.rect.right = SCREEN_WIDTH
+        
+        # Update wall sliding state
+        if wall_detected and self.in_air and self.vel_y > 0:
+            # Check if player is moving toward the wall or holding toward wall
+            if (self.wall_side == -1 and moving_left) or (self.wall_side == 1 and moving_right):
+                self.wall_sliding = True
+            else:
+                self.wall_sliding = False
+                self.wall_side = 0
+        else:
             self.wall_sliding = False
             self.wall_side = 0
 
@@ -770,27 +742,6 @@ def draw_enemy_health_bar(enemy):
         health_width = int(bar_width * (enemy.health / enemy.max_health))
         pygame.draw.rect(screen, GREEN, (bar_x, bar_y, health_width, bar_height))
 
-# ---------- MAIN MENU ----------
-def draw_main_menu():
-    """Draw the main menu screen"""
-    try:
-        main_menu_img = pygame.image.load('img/BG/main_screen.png')
-        main_menu_img = pygame.transform.scale(main_menu_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
-        main_menu_img = main_menu_img.convert()
-        screen.blit(main_menu_img, (0, 0))
-    except pygame.error:
-        # Fallback if image doesn't exist
-        screen.fill((50, 50, 100))
-        font = pygame.font.Font(None, 74)
-        text = font.render('POXEL', True, WHITE)
-        text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
-        screen.blit(text, text_rect)
-        
-        font_small = pygame.font.Font(None, 36)
-        text_small = font_small.render('Click anywhere to start', True, WHITE)
-        text_rect_small = text_small.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
-        screen.blit(text_small, text_rect_small)
-
 # ---------- GAME RESTART FUNCTION ----------
 def restart_game():
     global player, enemy
@@ -801,61 +752,54 @@ def restart_game():
 player = Player('player', 200, 200, 3, 5)
 enemy = Enemy(800, 500, 2, 2)
 
-# Game state
-game_state = 'menu'  # 'menu' or 'playing'
-
 run = True
 while run:
     clock.tick(FPS)
-    
-    if game_state == 'menu':
-        draw_main_menu()
-    elif game_state == 'playing':
-        draw_bg()  # Now much faster!
+    draw_bg()  # Now much faster!
 
-        player.update_animation()
-        player.draw()
+    player.update_animation()
+    player.draw()
 
-        if player.alive:
-            if player.attacking:
-                if player.attack_type == 'up':
-                    player.update_action(6)
-                elif player.attack_type == 'down':
-                    player.update_action(7)
-                else:
-                    player.update_action(5)
-            elif player.dashing:
-                player.update_action(4)
-            elif player.wall_sliding:
-                # Use idle animation for wall sliding (could be a dedicated wall slide animation)
-                player.update_action(0)
-            elif player.in_air:
-                if player.vel_y < 0:
-                    player.update_action(2)
-                else:
-                    player.update_action(3)
-            elif moving_left or moving_right:
-                player.update_action(1)
+    if player.alive:
+        if player.attacking:
+            if player.attack_type == 'up':
+                player.update_action(6)
+            elif player.attack_type == 'down':
+                player.update_action(7)
             else:
-                player.update_action(0)
+                player.update_action(5)
+        elif player.dashing:
+            player.update_action(4)
+        elif player.wall_sliding:
+            # Use idle animation for wall sliding (could be a dedicated wall slide animation)
+            player.update_action(0)
+        elif player.in_air:
+            if player.vel_y < 0:
+                player.update_action(2)
+            else:
+                player.update_action(3)
+        elif moving_left or moving_right:
+            player.update_action(1)
+        else:
+            player.update_action(0)
 
-            player.move(moving_left, moving_right)
+        player.move(moving_left, moving_right)
 
-        # Update enemy
-        if enemy.alive:
-            enemy.ai_behavior(player)
-            enemy.draw()
-            draw_enemy_health_bar(enemy)  # Draw enemy health bar
-        
-        # Check combat
-        check_combat(player, enemy)
-        
-        # Draw health masks instead of health bars
-        draw_health_masks(player.current_masks, player.max_masks)
-        
-        # Check if player died and restart game
-        if not player.alive or not enemy.alive:
-            restart_game()
+    # Update enemy
+    if enemy.alive:
+        enemy.ai_behavior(player)
+        enemy.draw()
+        draw_enemy_health_bar(enemy)  # Draw enemy health bar
+    
+    # Check combat
+    check_combat(player, enemy)
+    
+    # Draw health masks instead of health bars
+    draw_health_masks(player.current_masks, player.max_masks)
+    
+    # Check if player died and restart game
+    if not player.alive or not enemy.alive:
+        restart_game()
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -874,12 +818,7 @@ while run:
                 moving_right = False
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
-                if game_state == 'menu':
-                    # Start game on click
-                    game_state = 'playing'
-                    restart_game()
-                elif game_state == 'playing':
-                    player.attack()
+                player.attack()
 
     pygame.display.update()
 

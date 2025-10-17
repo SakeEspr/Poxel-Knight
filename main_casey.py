@@ -165,7 +165,7 @@ class Enemy(pygame.sprite.Sprite):
         # AI states
         self.state = 'patrol'  # 'patrol', 'chase'
         self.detection_range = 250
-        self.reaction_time = 45
+        self.reaction_time = 60
         
         # Animation system
         self.animation_list = []
