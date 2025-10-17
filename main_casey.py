@@ -240,11 +240,12 @@ class Enemy(pygame.sprite.Sprite):
             dx = self.speed * self.direction
             
             # Random jump while patrolling (small chance)
+            # ENEMY_JUMP_CHANCE is a float probability in [0,1]
             if (
                 not self.in_air
                 and self.jump_cooldown == 0
                 and random.random() < ENEMY_JUMP_CHANCE
-    ):
+            ):
                 if abs(dx) > 0:  # Only jump if moving
                     self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
                     self.in_air = True
