@@ -869,7 +869,7 @@ while run:
         draw_health_masks(player.current_masks, player.max_masks)
         
         # Check if player died and restart game
-        if not player.alive or not enemy.alive:
+        if not player.alive:
             restart_game()
 
     for event in pygame.event.get():
