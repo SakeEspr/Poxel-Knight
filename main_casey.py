@@ -119,6 +119,7 @@ for platform_data in platforms:
 
 # OPTIMIZED: Create a static background surface that includes platforms
 # This way we only need to blit one surface instead of background + all platforms
+
 def create_static_background():
     """Create a single surface with background and platforms combined"""
     bg_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
