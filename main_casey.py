@@ -343,7 +343,17 @@ class Enemy(pygame.sprite.Sprite):
     def update_animation(self):
         ANIMATION_COOLDOWN = 50  # Made faster - was 100
         
+        # Save bottom position to maintain consistent height
+        old_bottom = self.rect.bottom
+        old_centerx = self.rect.centerx
+        
+        # Update image and recreate rect
         self.image = self.animation_list[self.action][self.frame_index]
+        new_rect = self.image.get_rect()
+        new_rect.centerx = old_centerx
+        new_rect.bottom = old_bottom
+        self.rect = new_rect
+        
         if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
             self.update_time = pygame.time.get_ticks()
             self.frame_index += 1
@@ -373,7 +383,11 @@ class Enemy(pygame.sprite.Sprite):
         
         # Flip the image if needed
         img = pygame.transform.flip(self.image, self.flip, False)
-        screen.blit(img, self.rect)
+        
+        # Draw sprite anchored to bottom of collision rect
+        draw_x = self.rect.left
+        draw_y = self.rect.bottom - img.get_height()
+        screen.blit(img, (draw_x, draw_y))
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
