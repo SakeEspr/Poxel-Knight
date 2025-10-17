@@ -19,7 +19,7 @@ DASH_SPEED = 14
 DASH_TIME = 12
 DASH_COOLDOWN = 40
 
-ENEMY_JUMP_CHANCE = 0.03   #% chance each frame while patrolling
+enemy1_JUMP_CHANCE = 0.03   #% chance each frame while patrolling
 
 JUMP_SPEED = -11
 MAX_JUMP_TIME = 15
@@ -138,11 +138,11 @@ def draw_bg():
     screen.blit(static_background, (0, 0))
 
 # ---------- ENEMY CLASS ----------
-class Enemy(pygame.sprite.Sprite):
+class Enemy1(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed * 2.5  # Make enemy 20% faster than player
+        self.speed = speed * 2.5  # Make enemy1 20% faster than player
         self.direction = -1
         self.flip = False  # Start flipped since direction is -1
         
@@ -190,7 +190,7 @@ class Enemy(pygame.sprite.Sprite):
                     # Fallback: create simple colored rectangles
                     for i in range(4):  # 4 frames fallback
                         img = pygame.Surface((70, 90))
-                        img.fill((255, 0, 0))  # Red enemy
+                        img.fill((255, 0, 0))  # Red enemy1
                         img = img.convert()
                         temp_list.append(img)
             except:
@@ -240,11 +240,11 @@ class Enemy(pygame.sprite.Sprite):
             dx = self.speed * self.direction
             
             # Random jump while patrolling (small chance)
-            # ENEMY_JUMP_CHANCE is a float probability in [0,1]
+            # enemy1_JUMP_CHANCE is a float probability in [0,1]
             if (
                 not self.in_air
                 and self.jump_cooldown == 0
-                and random.random() < ENEMY_JUMP_CHANCE
+                and random.random() < enemy1_JUMP_CHANCE
             ):
                 if abs(dx) > 0:  # Only jump if moving
                     self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
@@ -328,7 +328,7 @@ class Enemy(pygame.sprite.Sprite):
                     self.rect.top = platform.rect.bottom
                     self.vel_y = 0
         
-        # Keep enemy on screen
+        # Keep enemy1 on screen
         if self.rect.left < 0:
             self.rect.left = 0
             if self.state == 'patrol':
@@ -370,7 +370,7 @@ class Enemy(pygame.sprite.Sprite):
     def draw(self):
         # Update animation based on state
         if self.state == 'chase' or self.state == 'patrol':
-            # Check if enemy is actually moving
+            # Check if enemy1 is actually moving
             if abs(self.speed) > 0:
                 self.update_action(1)  # Run animation
             else:
@@ -477,56 +477,57 @@ class Player(pygame.sprite.Sprite):
                 self.current_masks = 0
                 self.alive = False
 
+    def create_attack_hitbox(self, attack_type):
+        """Create the attack hitbox based on attack type"""
+        if attack_type == 'up':
+            return pygame.Rect(
+                self.rect.centerx - ATTACK_WIDTH // 2,
+                self.rect.top - ATTACK_RANGE,
+                ATTACK_WIDTH,
+                ATTACK_RANGE
+            )
+        elif attack_type == 'down':
+            return pygame.Rect(
+                self.rect.centerx - ATTACK_WIDTH // 2,
+                self.rect.bottom,
+                ATTACK_WIDTH,
+                ATTACK_RANGE
+            )
+        else:  # side attack
+            x = self.rect.right if self.direction == 1 else self.rect.left - ATTACK_RANGE
+            return pygame.Rect(
+                x,
+                self.rect.centery - ATTACK_HEIGHT // 2,
+                ATTACK_RANGE,
+                ATTACK_HEIGHT
+            )
+
     def attack(self):
-        if self.attack_cooldown == 0 and not self.dashing:
-            keys = pygame.key.get_pressed()
-            self.attacking = True
-            self.attack_cooldown = 20
+        # Only attack if not on cooldown and not dashing
+        if self.attack_cooldown > 0 or self.dashing:
+            return
 
-            if keys[pygame.K_w]:
-                # Upward attack
-                self.attack_type = 'up'
-                self.attack_timer = len(self.animation_list[6]) * 40
-                self.update_action(6)
+        keys = pygame.key.get_pressed()
+        self.attacking = True
+        self.attack_cooldown = 20
 
-                self.attack_rect = pygame.Rect(
-                    self.rect.centerx - ATTACK_WIDTH // 2,
-                    self.rect.top - ATTACK_RANGE,
-                    ATTACK_WIDTH,
-                    ATTACK_RANGE
-                )
-            elif keys[pygame.K_s] and self.in_air:
-                # Downward attack
-                self.attack_type = 'down'
-                self.attack_timer = len(self.animation_list[7]) * 40
-                self.update_action(7)
+        # Determine attack type
+        if keys[pygame.K_w]:
+            self.attack_type = 'up'
+            animation_index = 6
+        elif keys[pygame.K_s] and self.in_air:
+            self.attack_type = 'down'
+            animation_index = 7
+        else:
+            self.attack_type = 'side'
+            animation_index = 5
 
-                self.attack_rect = pygame.Rect(
-                    self.rect.centerx - ATTACK_WIDTH // 2,
-                    self.rect.bottom,
-                    ATTACK_WIDTH,
-                    ATTACK_RANGE
-                )
-            else:
-                # Side attack
-                self.attack_type = 'side'
-                self.attack_timer = len(self.animation_list[5]) * 40
-                self.update_action(5)
+        # Set attack duration and animation
+        self.attack_timer = len(self.animation_list[animation_index]) * 40
+        self.update_action(animation_index)
 
-                if self.direction == 1:
-                    self.attack_rect = pygame.Rect(
-                        self.rect.right,
-                        self.rect.centery - ATTACK_HEIGHT // 2,
-                        ATTACK_RANGE,
-                        ATTACK_HEIGHT
-                    )
-                else:
-                    self.attack_rect = pygame.Rect(
-                        self.rect.left - ATTACK_RANGE,
-                        self.rect.centery - ATTACK_HEIGHT // 2,
-                        ATTACK_RANGE,
-                        ATTACK_HEIGHT
-                    )
+        # Create the attack hitbox
+        self.attack_rect = self.create_attack_hitbox(self.attack_type)
 
     def move(self, moving_left, moving_right):
         dx = 0
@@ -611,27 +612,20 @@ class Player(pygame.sprite.Sprite):
         if self.dash_cooldown > 0:
             self.dash_cooldown -= 1
 
-        # Attack updates
+        # Update attack state
         if self.attacking:
             self.attack_timer -= 1
+            
+            # End attack if timer runs out
             if self.attack_timer <= 0:
                 self.attacking = False
                 self.attack_type = None
                 self.attack_rect = None
+            # Update attack hitbox position
             elif self.attack_rect:
-                if self.attack_type == 'side':
-                    if self.direction == 1:
-                        self.attack_rect.x = self.rect.right
-                    else:
-                        self.attack_rect.x = self.rect.left - ATTACK_RANGE
-                    self.attack_rect.centery = self.rect.centery
-                elif self.attack_type == 'up':
-                    self.attack_rect.centerx = self.rect.centerx
-                    self.attack_rect.y = self.rect.top - ATTACK_RANGE
-                elif self.attack_type == 'down':
-                    self.attack_rect.centerx = self.rect.centerx
-                    self.attack_rect.y = self.rect.bottom
+                self.attack_rect = self.create_attack_hitbox(self.attack_type)
 
+        # Update attack cooldown
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
 
@@ -749,11 +743,11 @@ class Player(pygame.sprite.Sprite):
         screen.blit(img, (draw_x, draw_y))
 
 # ---------- COMBAT SYSTEM ----------
-def check_combat(player, enemy):
-    # Player attacking enemy
-    if player.attacking and player.attack_rect and enemy.alive:
-        if player.attack_rect.colliderect(enemy.rect):
-            enemy.take_damage(ATTACK_DAMAGE)
+def check_combat(player, enemy1):
+    # Player attacking enemy1
+    if player.attacking and player.attack_rect and enemy1.alive:
+        if player.attack_rect.colliderect(enemy1.rect):
+            enemy1.take_damage(ATTACK_DAMAGE)
             
             # Special bounce for downward attack
             if player.attack_type == 'down' and player.vel_y >= 0:
@@ -765,24 +759,24 @@ def check_combat(player, enemy):
             # Prevent multiple hits from same attack
             player.attack_rect = None
 
-    # Enemy damages player on collision (with invincibility frames check)
-    if enemy.alive and player.alive and player.rect.colliderect(enemy.rect):
+    # enemy1 damages player on collision (with invincibility frames check)
+    if enemy1.alive and player.alive and player.rect.colliderect(enemy1.rect):
         player.take_damage(1)  # Take 1 mask of damage
 
-# ---------- DRAW ENEMY HEALTH BAR ----------
-def draw_enemy_health_bar(enemy):
-    """Draw a simple health bar for the enemy"""
-    if enemy.alive and enemy.health < enemy.max_health:
+# ---------- DRAW enemy1 HEALTH BAR ----------
+def draw_enemy1_health_bar(enemy1):
+    """Draw a simple health bar for the enemy1"""
+    if enemy1.alive and enemy1.health < enemy1.max_health:
         bar_width = 50
         bar_height = 5
-        bar_x = enemy.rect.centerx - bar_width // 2
-        bar_y = enemy.rect.top - 15
+        bar_x = enemy1.rect.centerx - bar_width // 2
+        bar_y = enemy1.rect.top - 15
         
         # Background
         pygame.draw.rect(screen, RED, (bar_x, bar_y, bar_width, bar_height))
         
         # Health
-        health_width = int(bar_width * (enemy.health / enemy.max_health))
+        health_width = int(bar_width * (enemy1.health / enemy1.max_health))
         pygame.draw.rect(screen, GREEN, (bar_x, bar_y, health_width, bar_height))
 
 # ---------- MAIN MENU ----------
@@ -808,13 +802,13 @@ def draw_main_menu():
 
 # ---------- GAME RESTART FUNCTION ----------
 def restart_game():
-    global player, enemy
+    global player, enemy1
     player = Player('player', 200, 200, 3, 5)
-    enemy = Enemy(800, 500, 2, 2)
+    enemy1 = Enemy1(800, 500, 2, 2)
 
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
-enemy = Enemy(800, 500, 2, 2)
+enemy1 = Enemy1(800, 500, 2, 2)
 
 # Game state
 game_state = 'menu'  # 'menu' or 'playing'
@@ -856,14 +850,14 @@ while run:
 
             player.move(moving_left, moving_right)
 
-        # Update enemy
-        if enemy.alive:
-            enemy.ai_behavior(player)
-            enemy.draw()
-            draw_enemy_health_bar(enemy)  # Draw enemy health bar
+        # Update enemy1
+        if enemy1.alive:
+            enemy1.ai_behavior(player)
+            enemy1.draw()
+            draw_enemy1_health_bar(enemy1)  # Draw enemy1 health bar
         
         # Check combat
-        check_combat(player, enemy)
+        check_combat(player, enemy1)
         
         # Draw health masks instead of health bars
         draw_health_masks(player.current_masks, player.max_masks)
