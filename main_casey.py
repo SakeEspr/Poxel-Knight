@@ -30,6 +30,10 @@ ATTACK_WIDTH = 40
 ATTACK_HEIGHT = 50
 ATTACK_DAMAGE = 10
 
+# Well dimensions
+WELL_WIDTH = 300
+WELL_HEIGHT = 100
+
 BG = (255, 200, 200)
 
 moving_left = False
@@ -52,13 +56,18 @@ GREEN = (0, 255, 0)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
-# ---------- LOAD WELL IMAGE ----------
+# ---------- LOAD WELL IMAGES ----------
 try:
-    well_img = pygame.image.load('img/BG/well.png')
-    well_img = pygame.transform.scale(well_img, (100, 200))
+    well_img = pygame.image.load('img/BG/well1.png')
+    well_img = pygame.transform.scale(well_img, (WELL_WIDTH, WELL_HEIGHT))
     well_img = well_img.convert_alpha()
+    
+    well2_img = pygame.image.load('img/BG/well2.png')
+    well2_img = pygame.transform.scale(well2_img, (WELL_WIDTH, WELL_HEIGHT))
+    well2_img = well2_img.convert_alpha()
 except pygame.error:
     well_img = None
+    well2_img = None
 
 # ---------- LOAD HEALTH MASKS ----------
 try:
@@ -146,12 +155,19 @@ def draw_bg():
     screen.blit(static_background, (0, 0))
 
 def draw_well():
-    """Draw a simple well in the background"""
+    """Draw a well with its front part appearing in front of characters"""
     if well_img:
-        screen.blit(well_img, (500, 580))
+        # Draw the back part of the well first
+        screen.blit(well_img, (450, 575))
     else:
         # Fallback if image doesn't exist
         pygame.draw.rect(screen, (150, 75, 0), (500, 580, 100, 150))
+
+def draw_well_front():
+    """Draw the front part of the well"""
+    if well2_img:
+        # Draw the front part of the well
+        screen.blit(well2_img, (450, 600))
 
 def enemy1_dead():
     if enemy1.alive == False:
@@ -875,8 +891,11 @@ while run:
             enemy1.ai_behavior(player)
             enemy1.draw()
             draw_enemy1_health_bar(enemy1)  # Draw enemy1 health bar
-        else:
+        elif enemy1.alive == False:
             enemy1_dead()  # Draw death effect and well when enemy is dead
+            
+        # Draw the front part of the well after characters
+        draw_well_front()
         
         # Check combat
         check_combat(player, enemy1)
