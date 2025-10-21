@@ -876,6 +876,9 @@ while run:
                 moving_right = True
             if event.key == pygame.K_BACKSPACE:
                 run = False
+            if event.key == pygame.K_RIGHTBRACKET:
+                enemy1.health = 0
+                enemy1.alive = False
         if event.type == pygame.KEYUP:
             if event.key == pygame.K_a:
                 moving_left = False
