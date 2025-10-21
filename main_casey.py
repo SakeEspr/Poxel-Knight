@@ -52,6 +52,14 @@ GREEN = (0, 255, 0)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
+# ---------- LOAD WELL IMAGE ----------
+try:
+    well_img = pygame.image.load('img/BG/well.png')
+    well_img = pygame.transform.scale(well_img, (100, 200))
+    well_img = well_img.convert_alpha()
+except pygame.error:
+    well_img = None
+
 # ---------- LOAD HEALTH MASKS ----------
 try:
     mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
@@ -136,6 +144,18 @@ static_background = create_static_background()
 def draw_bg():
     """OPTIMIZED: Just blit the pre-rendered background"""
     screen.blit(static_background, (0, 0))
+
+def draw_well():
+    """Draw a simple well in the background"""
+    if well_img:
+        screen.blit(well_img, (500, 580))
+    else:
+        # Fallback if image doesn't exist
+        pygame.draw.rect(screen, (150, 75, 0), (500, 580, 100, 150))
+
+def enemy1_dead():
+    if enemy1.alive == False:
+        draw_well()
 
 # ---------- ENEMY CLASS ----------
 class Enemy1(pygame.sprite.Sprite):
@@ -855,6 +875,8 @@ while run:
             enemy1.ai_behavior(player)
             enemy1.draw()
             draw_enemy1_health_bar(enemy1)  # Draw enemy1 health bar
+        else:
+            enemy1_dead()  # Draw death effect and well when enemy is dead
         
         # Check combat
         check_combat(player, enemy1)
@@ -874,7 +896,7 @@ while run:
                 moving_left = True
             if event.key == pygame.K_d:
                 moving_right = True
-            if event.key == pygame.K_BACKSPACE:
+            if event.key == pygame.K_ESCAPE:
                 run = False
             if event.key == pygame.K_RIGHTBRACKET:
                 enemy1.health = 0
