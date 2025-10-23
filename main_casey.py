@@ -159,19 +159,16 @@ def draw_well():
     if well_img:
         # Draw the back part of the well first
         screen.blit(well_img, (450, 575))
-    else:
-        # Fallback if image doesn't exist
-        pygame.draw.rect(screen, (150, 75, 0), (500, 580, 100, 150))
 
 def draw_well_front():
     """Draw the front part of the well"""
     if well2_img:
         # Draw the front part of the well
-        screen.blit(well2_img, (450, 600))
+        screen.blit(well2_img, (450, 650))
 
 def enemy1_dead():
     if enemy1.alive == False:
-        draw_well()
+        draw_well_front()  # Only draw the front part here
 
 # ---------- ENEMY CLASS ----------
 class Enemy1(pygame.sprite.Sprite):
@@ -857,6 +854,10 @@ while run:
         draw_main_menu()
     elif game_state == 'playing':
         draw_bg()  # Now much faster!
+        
+        # Draw the well behind everything if enemy is dead
+        if not enemy1.alive:
+            draw_well()  # Draw back part of well first
 
         player.update_animation()
         player.draw()
@@ -893,9 +894,6 @@ while run:
             draw_enemy1_health_bar(enemy1)  # Draw enemy1 health bar
         elif enemy1.alive == False:
             enemy1_dead()  # Draw death effect and well when enemy is dead
-            
-        # Draw the front part of the well after characters
-        draw_well_front()
         
         # Check combat
         check_combat(player, enemy1)
