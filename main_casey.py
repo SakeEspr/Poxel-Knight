@@ -875,9 +875,9 @@ class Player(pygame.sprite.Sprite):
         except NameError:
             waiting_for_reentry = False
 
-        if self.rect.top > SCREEN_HEIGHT + 40:
+        if self.rect.top > SCREEN_HEIGHT - 200:
             # Teleport player to just above the top of the screen and wait for re-entry
-            self.rect.bottom = -10
+            self.rect.bottom = -200
             waiting_for_reentry = True
 
     def update_animation(self):
