@@ -122,8 +122,6 @@ class Platform(pygame.sprite.Sprite):
         if invisible:
             self.image.set_alpha(0)
             self.image.fill((0, 0, 0))
-        else:
-            self.image.fill((100, 100, 100))  # Gray platforms for visibility
         # Convert for better performance
         self.image = self.image.convert_alpha() if invisible else self.image.convert()
         self.rect = pygame.Rect(x, y, width, height)
@@ -153,6 +151,7 @@ platforms = [
     (left_x, GROUND_Y, left_w, GROUND_H, True),
     (mid_x, GROUND_Y, mid_w, GROUND_H, True),
     (right_x, GROUND_Y, right_w, GROUND_H, True),
+    (0, 700, SCREEN_WIDTH, 200, False),  # Floor
 ]
 
 for platform_data in platforms:
@@ -167,8 +166,8 @@ vertical_platforms = []  # list of Platform instances added at runtime
 vertical_platforms_active = False
  
 # Create roof segments (left, middle, right) so we can remove the middle roof later
-ROOF_Y = 0
-ROOF_H = 40
+ROOF_Y = -350
+ROOF_H = 400
 roof_left = (left_x, ROOF_Y, left_w, ROOF_H, True)
 roof_mid = (mid_x, ROOF_Y, mid_w, ROOF_H, True)
 roof_right = (right_x, ROOF_Y, right_w, ROOF_H, True)
@@ -876,7 +875,7 @@ class Player(pygame.sprite.Sprite):
         except NameError:
             waiting_for_reentry = False
 
-        if self.rect.top > SCREEN_HEIGHT + 400:
+        if self.rect.top > SCREEN_HEIGHT + 40:
             # Teleport player to just above the top of the screen and wait for re-entry
             self.rect.bottom = -10
             waiting_for_reentry = True
