@@ -38,6 +38,7 @@ BG = (255, 200, 200)
 
 moving_left = False
 moving_right = False
+DEBUG_HITBOXES = False  # Toggle with left bracket
 
 # OPTIMIZED: Pre-scale background once and convert for better blitting performance
 try:
@@ -127,13 +128,74 @@ platform_group = pygame.sprite.Group()
 
 platforms = [
     (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor only
-    (0, 0, SCREEN_WIDTH, 1, True)
+    (0, 0, SCREEN_WIDTH, 1, True),          # Top boundary
 ]
 
 for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
 
+    # Vertical platforms that appear after enemy is killed
+vertical_platforms = []  # list of Platform instances added at runtime
+vertical_platforms_active = False
+VPLAT_WIDTH = 65
+VPLAT_HEIGHT = 100
+VPLAT_Y = 600  # top y so bottom aligns with ground at 650
+VPLAT_LEFT_X = 465
+VPLAT_RIGHT_X = 675
+
+def create_vertical_platforms():
+    """Create two vertical platforms and add them to platform_group and our list.
+    Safe to call multiple times; will only create once.
+    """
+    global vertical_platforms_active, vertical_platforms
+    if vertical_platforms_active:
+        return
+    # Create platform sprites at visual positions
+    p1 = Platform(VPLAT_LEFT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, invisible=False)
+    p2 = Platform(VPLAT_RIGHT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, invisible=False)
+
+    # Store the original visual rects for drawing the full image
+    orig_r1 = p1.rect.copy()
+    orig_r2 = p2.rect.copy()
+
+    # Determine tight hitbox from the image's non-transparent pixels
+    try:
+        b1 = p1.image.get_bounding_rect()  # bounding rect of non-transparent pixels (local coords)
+        b2 = p2.image.get_bounding_rect()
+    except Exception:
+        # Fallback to full rect if something goes wrong
+        b1 = p1.image.get_rect()
+        b2 = p2.image.get_rect()
+
+    # Convert bounding rects to world coordinates based on the visual rect origin
+    hit_r1 = pygame.Rect(orig_r1.x + b1.x, orig_r1.y + b1.y, b1.width, b1.height)
+    hit_r2 = pygame.Rect(orig_r2.x + b2.x, orig_r2.y + b2.y, b2.width, b2.height)
+
+    # Assign tight hitboxes to the platform sprites (these are used for collisions)
+    p1.rect = hit_r1
+    p2.rect = hit_r2
+
+    # Keep the original visual rects for drawing so the image stays the same
+    p1._visual_rect = orig_r1
+    p2._visual_rect = orig_r2
+
+    # Add to collision group and store in runtime list
+    platform_group.add(p1)
+    platform_group.add(p2)
+    vertical_platforms = [p1, p2]
+    vertical_platforms_active = True
+
+def remove_vertical_platforms():
+    """Remove the runtime vertical platforms from the collision group and clear list."""
+    global vertical_platforms_active, vertical_platforms
+    for p in list(vertical_platforms):
+        try:
+            platform_group.remove(p)
+        except Exception:
+            pass
+    vertical_platforms = []
+    vertical_platforms_active = False
 
 def create_static_background():
     """Create a single surface with background and platforms combined"""
@@ -164,11 +226,12 @@ def draw_well_front():
     """Draw the front part of the well"""
     if well2_img:
         # Draw the front part of the well
-        screen.blit(well2_img, (450, 650))
+        screen.blit(well2_img, (450, 612))
 
 def enemy1_dead():
     if enemy1.alive == False:
         draw_well_front()  # Only draw the front part here
+    create_vertical_platforms()  # Create vertical platforms when enemy dies
 
 # ---------- ENEMY CLASS ----------
 class Enemy1(pygame.sprite.Sprite):
@@ -420,7 +483,7 @@ class Enemy1(pygame.sprite.Sprite):
         # Draw sprite anchored to bottom of collision rect
         draw_x = self.rect.left
         draw_y = self.rect.bottom - img.get_height()
-        screen.blit(img, (draw_x, draw_y))
+    screen.blit(img, (draw_x, draw_y))
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -663,8 +726,26 @@ class Player(pygame.sprite.Sprite):
             self.attack_cooldown -= 1
 
         # HORIZONTAL COLLISIONS AND WALL DETECTION (screen borders only)
+        # Horizontal movement
         self.rect.x += dx
-        
+
+        # Horizontal collision with platforms (runtime vertical platforms included)
+        for platform in platform_group:
+            if self.rect.colliderect(platform.rect):
+                if dx > 0:
+                    # Hit a platform moving right -> place player to the left of it
+                    self.rect.right = platform.rect.left
+                    # If in air and moving into platform, enable wall sliding
+                    if self.in_air:
+                        self.wall_sliding = True
+                        self.wall_side = 1
+                elif dx < 0:
+                    # Hit a platform moving left -> place player to the right of it
+                    self.rect.left = platform.rect.right
+                    if self.in_air:
+                        self.wall_sliding = True
+                        self.wall_side = -1
+
         # Check screen boundaries for wall jumping
         if self.in_air and self.vel_y > 0:
             if self.rect.left <= 0:
@@ -724,7 +805,6 @@ class Player(pygame.sprite.Sprite):
         ANIMATION_COOLDOWN = 100
         if self.action in [5, 6, 7]:  # attack animations faster
             ANIMATION_COOLDOWN = 3
-
         self.image = self.animation_list[self.action][self.frame_index]
         if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
             self.update_time = pygame.time.get_ticks()
@@ -838,6 +918,11 @@ def restart_game():
     global player, enemy1
     player = Player('player', 200, 200, 3, 5)
     enemy1 = Enemy1(800, 500, 2, 2)
+    # Remove any runtime vertical platforms when restarting
+    try:
+        remove_vertical_platforms()
+    except NameError:
+        pass
 
 # ---------- MAIN LOOP ----------
 player = Player('player', 200, 200, 3, 5)
@@ -895,6 +980,13 @@ while run:
         elif enemy1.alive == False:
             enemy1_dead()  # Draw death effect and well when enemy is dead
         
+        # Draw runtime vertical platforms (if any)
+        if vertical_platforms_active:
+            for vp in vertical_platforms:
+                # Draw visual at original visual rect if available, otherwise at collision rect
+                vis_rect = getattr(vp, '_visual_rect', vp.rect)
+                screen.blit(vp.image, vis_rect)
+
         # Check combat
         check_combat(player, enemy1)
         
@@ -913,6 +1005,9 @@ while run:
                 moving_left = True
             if event.key == pygame.K_d:
                 moving_right = True
+            if event.key == pygame.K_LEFTBRACKET:
+                DEBUG_HITBOXES = not DEBUG_HITBOXES
+                print(f"DEBUG_HITBOXES={DEBUG_HITBOXES}")
             if event.key == pygame.K_ESCAPE:
                 run = False
             if event.key == pygame.K_RIGHTBRACKET:
@@ -931,6 +1026,19 @@ while run:
                     restart_game()
                 elif game_state == 'playing':
                     player.attack()
+
+    # Debug: draw hitbox outlines if enabled
+    if DEBUG_HITBOXES and game_state == 'playing':
+        # Draw platform hitboxes
+        for plat in platform_group:
+            pygame.draw.rect(screen, (255, 0, 0), plat.rect, 2)
+
+        # Player hitbox
+        pygame.draw.rect(screen, (255, 0, 0), player.rect, 2)
+
+        # Enemy hitbox
+        if enemy1:
+            pygame.draw.rect(screen, (255, 0, 0), enemy1.rect, 2)
 
     pygame.display.update()
 
