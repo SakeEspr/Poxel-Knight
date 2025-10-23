@@ -21,6 +21,9 @@ DASH_COOLDOWN = 40
 
 enemy1_JUMP_CHANCE = 0.03   #% chance each frame while patrolling
 
+# Global game state
+static_background = None  # Will be set after platforms are created
+
 JUMP_SPEED = -11
 MAX_JUMP_TIME = 15
 JUMP_HOLD_FORCE = -0.5
@@ -39,6 +42,7 @@ BG = (255, 200, 200)
 moving_left = False
 moving_right = False
 DEBUG_HITBOXES = False  # Toggle with left bracket
+waiting_for_reentry = False  # Set when player teleports above the screen and waits to re-enter
 
 # OPTIMIZED: Pre-scale background once and convert for better blitting performance
 try:
@@ -126,23 +130,54 @@ class Platform(pygame.sprite.Sprite):
 
 platform_group = pygame.sprite.Group()
 
+# Vertical platform positions (used to split the ground into three segments)
+VPLAT_WIDTH = 25
+VPLAT_HEIGHT = 100
+VPLAT_Y = 600  # top y so bottom aligns with ground at 650
+VPLAT_LEFT_X = 475
+VPLAT_RIGHT_X = 700
+
+# Split the main ground into three segments so the middle is between the two columns
+GROUND_Y = 650
+GROUND_H = 80
+
+# Compute left/middle/right segments
+left_x = 0
+left_w = max(0, int(VPLAT_LEFT_X - left_x))
+mid_x = int(VPLAT_LEFT_X)
+mid_w = max(0, int(VPLAT_RIGHT_X - VPLAT_LEFT_X))
+right_x = int(VPLAT_RIGHT_X)
+right_w = max(0, SCREEN_WIDTH - right_x)
+
 platforms = [
-    (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor only
-    (0, 0, SCREEN_WIDTH, 1, True),          # Top boundary
+    (left_x, GROUND_Y, left_w, GROUND_H, True),
+    (mid_x, GROUND_Y, mid_w, GROUND_H, True),
+    (right_x, GROUND_Y, right_w, GROUND_H, True),
 ]
 
 for platform_data in platforms:
     platform = Platform(*platform_data)
     platform_group.add(platform)
+    # Keep a reference to the middle ground segment so we can remove it later
+    if platform_data[0] == mid_x and platform_data[2] == mid_w and platform_data[3] == GROUND_H:
+        middle_ground_platform = platform
 
     # Vertical platforms that appear after enemy is killed
 vertical_platforms = []  # list of Platform instances added at runtime
 vertical_platforms_active = False
-VPLAT_WIDTH = 65
-VPLAT_HEIGHT = 100
-VPLAT_Y = 600  # top y so bottom aligns with ground at 650
-VPLAT_LEFT_X = 465
-VPLAT_RIGHT_X = 675
+ 
+# Create roof segments (left, middle, right) so we can remove the middle roof later
+ROOF_Y = 0
+ROOF_H = 40
+roof_left = (left_x, ROOF_Y, left_w, ROOF_H, True)
+roof_mid = (mid_x, ROOF_Y, mid_w, ROOF_H, True)
+roof_right = (right_x, ROOF_Y, right_w, ROOF_H, True)
+for roof_data in (roof_left, roof_mid, roof_right):
+    roof_plat = Platform(*roof_data)
+    platform_group.add(roof_plat)
+    if roof_data[0] == mid_x and roof_data[2] == mid_w:
+        middle_roof_platform = roof_plat
+ 
 
 def create_vertical_platforms():
     """Create two vertical platforms and add them to platform_group and our list.
@@ -152,8 +187,8 @@ def create_vertical_platforms():
     if vertical_platforms_active:
         return
     # Create platform sprites at visual positions
-    p1 = Platform(VPLAT_LEFT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, invisible=False)
-    p2 = Platform(VPLAT_RIGHT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, invisible=False)
+    p1 = Platform(VPLAT_LEFT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, invisible=True)
+    p2 = Platform(VPLAT_RIGHT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, invisible=True)
 
     # Store the original visual rects for drawing the full image
     orig_r1 = p1.rect.copy()
@@ -229,9 +264,43 @@ def draw_well_front():
         screen.blit(well2_img, (450, 612))
 
 def enemy1_dead():
+    
     if enemy1.alive == False:
         draw_well_front()  # Only draw the front part here
     create_vertical_platforms()  # Create vertical platforms when enemy dies
+    # Remove the middle ground segment to create a gap between vertical platforms
+    try:
+        middle_ground_platform
+    except NameError:
+        pass
+    else:
+        try:
+            platform_group.remove(middle_ground_platform)
+        except Exception:
+            pass
+        else:
+            # Recreate the static background so the removed middle platform is no longer
+            # drawn into the pre-baked background surface.
+            try:
+                static_background = create_static_background()
+            except Exception:
+                # If create_static_background isn't available or fails, ignore so game stays running
+                pass
+    # Also remove the middle roof platform so the roof gap appears
+    try:
+        middle_roof_platform
+    except NameError:
+        pass
+    else:
+        try:
+            platform_group.remove(middle_roof_platform)
+        except Exception:
+            pass
+        else:
+            try:
+                static_background = create_static_background()
+            except Exception:
+                pass
 
 # ---------- ENEMY CLASS ----------
 class Enemy1(pygame.sprite.Sprite):
@@ -483,7 +552,7 @@ class Enemy1(pygame.sprite.Sprite):
         # Draw sprite anchored to bottom of collision rect
         draw_x = self.rect.left
         draw_y = self.rect.bottom - img.get_height()
-    screen.blit(img, (draw_x, draw_y))
+        screen.blit(img, (draw_x, draw_y))
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
@@ -801,6 +870,17 @@ class Player(pygame.sprite.Sprite):
         elif self.rect.right > SCREEN_WIDTH:
             self.rect.right = SCREEN_WIDTH
 
+        # Teleport if falling far below the screen
+        try:
+            global waiting_for_reentry
+        except NameError:
+            waiting_for_reentry = False
+
+        if self.rect.top > SCREEN_HEIGHT + 400:
+            # Teleport player to just above the top of the screen and wait for re-entry
+            self.rect.bottom = -10
+            waiting_for_reentry = True
+
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
         if self.action in [5, 6, 7]:  # attack animations faster
@@ -996,6 +1076,18 @@ while run:
         # Check if player died and restart game
         if not player.alive:
             restart_game()
+            
+        # If player teleported above and now re-entered from top, restore middle ground
+        if waiting_for_reentry and player.rect.top >= 0:
+            # Re-add middle ground platform if it's not already present
+            try:
+                if middle_ground_platform not in platform_group:
+                    platform_group.add(middle_ground_platform)
+                # Recreate static background so the bottom floor is patched
+                static_background = create_static_background()
+            except Exception:
+                pass  # Ignore if platforms not found
+            waiting_for_reentry = False
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
