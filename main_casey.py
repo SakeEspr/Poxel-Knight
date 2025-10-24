@@ -23,6 +23,7 @@ enemy1_JUMP_CHANCE = 0.03   #% chance each frame while patrolling
 
 # Global game state
 static_background = None  # Will be set after platforms are created
+roof_restored = False     # Track if the roof has been restored after falling through
 
 JUMP_SPEED = -11
 MAX_JUMP_TIME = 15
@@ -43,6 +44,9 @@ moving_left = False
 moving_right = False
 DEBUG_HITBOXES = False  # Toggle with left bracket
 waiting_for_reentry = False  # Set when player teleports above the screen and waits to re-enter
+middle_platforms_visible = True
+# Small delay (in frames) to wait after teleport before restoring the environment
+waiting_for_reentry_counter = 0
 
 # OPTIMIZED: Pre-scale background once and convert for better blitting performance
 try:
@@ -231,20 +235,33 @@ def remove_vertical_platforms():
     vertical_platforms = []
     vertical_platforms_active = False
 
-def create_static_background():
-    """Create a single surface with background and platforms combined"""
+def create_static_background(black_bg=False):
+    """Create a single surface with background and platforms combined.
+    If black_bg is True, uses a black background instead of the normal one."""
     bg_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    bg_surface.blit(Back, (0, 0))  # Draw background
     
-    # Draw non-invisible platforms onto the background
+    if black_bg:
+        # Fill with pure black for post-well background
+        bg_surface.fill((0, 0, 0))
+    else:
+        # Normal background
+        bg_surface.blit(Back, (0, 0))
+    
+    # When using black background, draw ALL platforms
+    # Otherwise only draw non-invisible ones
     for platform in platform_group:
-        if platform.image.get_alpha() != 0:  # Only draw visible platforms
+        if black_bg or platform.image.get_alpha() != 0:
             bg_surface.blit(platform.image, platform.rect)
     
     return bg_surface.convert()  # Convert for faster blitting
 
 # Create the static background once
 static_background = create_static_background()
+
+# Track whether we've processed the enemy1 death effects once
+enemy1_dead_handled = False
+# When True we suppress the death-environment visuals (platform removal / well)
+boss_env_suppressed = False
 
 def draw_bg():
     """OPTIMIZED: Just blit the pre-rendered background"""
@@ -263,9 +280,8 @@ def draw_well_front():
         screen.blit(well2_img, (450, 612))
 
 def enemy1_dead():
-    
-    if enemy1.alive == False:
-        draw_well_front()  # Only draw the front part here
+    # Note: the front part of the well is drawn each frame from the main loop
+    # so we don't draw it here (avoids one-off draws at death time).
     create_vertical_platforms()  # Create vertical platforms when enemy dies
     # Remove the middle ground segment to create a gap between vertical platforms
     try:
@@ -870,15 +886,47 @@ class Player(pygame.sprite.Sprite):
             self.rect.right = SCREEN_WIDTH
 
         # Teleport if falling far below the screen
-        try:
-            global waiting_for_reentry
-        except NameError:
-            waiting_for_reentry = False
+        # Use the module-level waiting_for_reentry flag to signal the main loop
+        global waiting_for_reentry, waiting_for_reentry_counter
 
         if self.rect.top > SCREEN_HEIGHT - 200:
-            # Teleport player to just above the top of the screen and wait for re-entry
-            self.rect.bottom = -200
+            # Place the player just above the visible screen (so they are not "deleted")
+            # This keeps the player visible as they re-enter and prevents moving them far off-screen.
+            try:
+                img_h = self.image.get_height()
+            except Exception:
+                img_h = 64
+
+            # Put the player's top just above the screen
+            self.rect.top = -img_h - 300
+            # Reset vertical velocity so gravity will pull them back into view naturally
+            self.vel_y = 0
+            
+            # Immediately restore bottom platform and clear well graphics
+            try:
+                # Clear the well images right away so it stops drawing
+                global well_img, well2_img, boss_env_suppressed, roof_restored
+                well_img = None
+                well2_img = None
+                boss_env_suppressed = True
+                roof_restored = False  # Mark roof as not restored yet
+                
+                # Restore only bottom platform right away if missing
+                if middle_ground_platform not in platform_group:
+                    platform_group.add(middle_ground_platform)
+                    middle_platforms_visible = True
+                
+                # Remove vertical platforms since we're resetting
+                remove_vertical_platforms()
+            except Exception:
+                pass
+
+            # Start a short delay to avoid immediately restoring the top while the
+            # player is still overlapping the roof area. This prevents the fast
+            # replace/flash issue reported by placing the top back too soon.
             waiting_for_reentry = True
+            # Frames to wait before the main loop will perform the restore
+            waiting_for_reentry_counter = 120
 
     def update_animation(self):
         ANIMATION_COOLDOWN = 100
@@ -994,9 +1042,10 @@ def draw_main_menu():
 
 # ---------- GAME RESTART FUNCTION ----------
 def restart_game():
-    global player, enemy1
+    global player, enemy1, roof_restored
     player = Player('player', 200, 200, 3, 5)
     enemy1 = Enemy1(800, 500, 2, 2)
+    roof_restored = False  # Reset roof state on game restart
     # Remove any runtime vertical platforms when restarting
     try:
         remove_vertical_platforms()
@@ -1017,14 +1066,26 @@ while run:
     if game_state == 'menu':
         draw_main_menu()
     elif game_state == 'playing':
-        draw_bg()  # Now much faster!
-        
-        # Draw the well behind everything if enemy is dead
-        if not enemy1.alive:
-            draw_well()  # Draw back part of well first
+        # Always fill with black first if we're in post-well state (player has gone through well)
+        if waiting_for_reentry or boss_env_suppressed:
+            screen.fill((0, 0, 0))
+            # Draw all platforms on top of black background
+            for platform in platform_group:
+                screen.blit(platform.image, platform.rect)
+        else:
+            # Normal pre-well background
+            draw_bg()
+            # Draw the well behind everything if enemy is dead and not suppressed
+            if not enemy1.alive and not boss_env_suppressed and well_img:
+                draw_well()  # Draw back part of well first
 
+        # Draw player on top of either background
         player.update_animation()
         player.draw()
+
+        # Draw the front of the well in front of the player if boss death visuals are active
+        if not enemy1.alive and not boss_env_suppressed and well2_img:
+            draw_well_front()
 
         if player.alive:
             if player.attacking:
@@ -1051,13 +1112,17 @@ while run:
 
             player.move(moving_left, moving_right)
 
-        # Update enemy1
+        # Update enemy1 and run death effects only once when they die
         if enemy1.alive:
             enemy1.ai_behavior(player)
             enemy1.draw()
             draw_enemy1_health_bar(enemy1)  # Draw enemy1 health bar
-        elif enemy1.alive == False:
-            enemy1_dead()  # Draw death effect and well when enemy is dead
+        else:
+            # enemy is dead
+            if not enemy1_dead_handled:
+                # Apply the death-time environment changes once
+                enemy1_dead()
+                enemy1_dead_handled = True
         
         # Draw runtime vertical platforms (if any)
         if vertical_platforms_active:
@@ -1076,17 +1141,23 @@ while run:
         if not player.alive:
             restart_game()
             
-        # If player teleported above and now re-entered from top, restore middle ground
-        if waiting_for_reentry and player.rect.top >= 0:
-            # Re-add middle ground platform if it's not already present
-            try:
-                if middle_ground_platform not in platform_group:
-                    platform_group.add(middle_ground_platform)
-                # Recreate static background so the bottom floor is patched
-                static_background = create_static_background()
-            except Exception:
-                pass  # Ignore if platforms not found
-            waiting_for_reentry = False
+        # If player teleported above, handle delayed roof restoration
+        if waiting_for_reentry:
+            # Give the player a few frames to fall through before restoring the roof
+            if waiting_for_reentry_counter > 0:
+                waiting_for_reentry_counter -= 1
+            elif player.rect.top >= 0 and not roof_restored:
+                # After delay and player is back on screen, restore the roof
+                try:
+                    # Re-add the roof platform
+                    if middle_roof_platform not in platform_group:
+                        platform_group.add(middle_roof_platform)
+                    roof_restored = True  # Mark roof as restored
+                except Exception:
+                    pass
+                # Clear waiting state
+                waiting_for_reentry = False
+                waiting_for_reentry_counter = 0
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
