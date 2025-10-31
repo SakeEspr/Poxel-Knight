@@ -203,11 +203,11 @@ class Boss:
             if self.health <= 300 and self.phase == 1:
                 self.phase = 2
                 self.spawn_clones()
-                self.attack_cooldown = 60
+                self.attack_cooldown = 55
             elif self.health <= 100 and self.phase == 2:
                 self.phase = 3
                 self.rage_mode = True
-                self.attack_cooldown = 45
+                self.attack_cooldown = 25
                 self.clones = []
                 self.clones_active = False
             
@@ -305,7 +305,7 @@ class Boss:
             
             if self.phase == 1:
                 # Single projectile
-                projectiles.append(Projectile(self.x, self.y, player.rect.centerx, player.rect.centery, 5, WHITE))
+                projectiles.append(Projectile(self.x, self.y, player.rect.centerx, player.rect.centery, 10, WHITE))
             
             elif self.phase == 2:
                 # Triple shot
