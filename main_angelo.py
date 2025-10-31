@@ -1,258 +1,554 @@
 import pygame
 import os
 import random
+import math
 
 pygame.init()
 
 # ---------- CONFIG ----------
-SCREEN_WIDTH = 1200
-SCREEN_HEIGHT = 800
+SCREEN_WIDTH, SCREEN_HEIGHT = 1200, 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption('Poxel')
-
-FPS = 60
-clock = pygame.time.Clock()
+pygame.display.set_caption('Poxxel')
+FPS, clock = 60, pygame.time.Clock()
 
 # ---------- GAME VARIABLES ----------
 GRAVITY = 0.75
-DASH_SPEED = 14
-DASH_TIME = 12
-DASH_COOLDOWN = 40
-
-enemy1_JUMP_CHANCE = 0.03   #% chance each frame while patrolling
-
-JUMP_SPEED = -11
-MAX_JUMP_TIME = 15
-JUMP_HOLD_FORCE = -0.5
-
-ATTACK_RANGE = 60
-ATTACK_WIDTH = 40
-ATTACK_HEIGHT = 50
-ATTACK_DAMAGE = 10
-
+DASH_SPEED, DASH_TIME, DASH_COOLDOWN = 14, 12, 40
+JUMP_SPEED, MAX_JUMP_TIME, JUMP_HOLD_FORCE = -11, 15, -0.5
+ATTACK_RANGE, ATTACK_WIDTH, ATTACK_HEIGHT, ATTACK_DAMAGE = 60, 40, 50, 10
+WELL_WIDTH, WELL_HEIGHT = 300, 100
 BG = (255, 200, 200)
+RED, GREEN, WHITE, BLACK = (255, 0, 0), (0, 255, 0), (255, 255, 255), (0, 0, 0)
+WHITE, ORANGE, WHITE = (255, 215, 0), (255, 165, 0), (255, 255, 255)
 
-moving_left = False
-moving_right = False
 
-# OPTIMIZED: Pre-scale background once and convert for better blitting performance
+enemy1_JUMP_CHANCE = 0.03
+static_background = None
+roof_restored = False
+moving_left = moving_right = DEBUG_HITBOXES = waiting_for_reentry = False
+middle_platforms_visible = True
+waiting_for_reentry_counter = 0
+vertical_platforms = []
+vertical_platforms_active = False
+enemy1_dead_handled = boss_env_suppressed = False
+boss_fight_active = False
+boss = None
+
+# Load and convert background
 try:
     Back = pygame.image.load('img/BG/New_BG.png')
-    Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT))
-    Back = Back.convert()  # Convert for faster blitting
-except pygame.error:
-    # Fallback if image doesn't exist
+    Back = pygame.transform.scale(Back, (SCREEN_WIDTH, SCREEN_HEIGHT)).convert()
+except:
     Back = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    Back.fill(BG)
-    Back = Back.convert()
+    Back.fill(BG).convert()
 
-# Health bar colors
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
+# Load well images
+def load_img(path, size=None, alpha=True):
+    try:
+        img = pygame.image.load(path)
+        if size: img = pygame.transform.scale(img, size)
+        return img.convert_alpha() if alpha else img.convert()
+    except:
+        return None
 
-# ---------- LOAD HEALTH MASKS ----------
-try:
-    mask_filled = pygame.image.load('img/player/Mask/mask_filled.png')
-    mask_empty = pygame.image.load('img/player/Mask/mask_empty.png')
-    # Scale masks to appropriate size (adjust scale as needed)
-    MASK_SCALE = 2  # Adjust this value to make masks bigger/smaller
-    mask_filled = pygame.transform.scale(mask_filled, 
-        (int(mask_filled.get_width() * MASK_SCALE), 
-         int(mask_filled.get_height() * MASK_SCALE)))
-    mask_empty = pygame.transform.scale(mask_empty, 
-        (int(mask_empty.get_width() * MASK_SCALE), 
-         int(mask_empty.get_height() * MASK_SCALE)))
-    # Convert for better performance
-    mask_filled = mask_filled.convert_alpha()
-    mask_empty = mask_empty.convert_alpha()
-except pygame.error:
-    # Fallback if images don't exist
+well_img = load_img('img/BG/well1.png', (WELL_WIDTH, WELL_HEIGHT))
+well2_img = load_img('img/BG/well2.png', (WELL_WIDTH, WELL_HEIGHT))
+
+# Load health masks
+MASK_SCALE = 2
+mask_filled = load_img('img/player/Mask/mask_filled.png')
+mask_empty = load_img('img/player/Mask/mask_empty.png')
+if mask_filled:
+    mask_filled = pygame.transform.scale(mask_filled, (int(mask_filled.get_width() * MASK_SCALE), int(mask_filled.get_height() * MASK_SCALE))).convert_alpha()
+    mask_empty = pygame.transform.scale(mask_empty, (int(mask_empty.get_width() * MASK_SCALE), int(mask_empty.get_height() * MASK_SCALE))).convert_alpha()
+else:
     mask_filled = pygame.Surface((30, 30))
-    mask_filled.fill(GREEN)
+    mask_filled.fill(GREEN).convert()
     mask_empty = pygame.Surface((30, 30))
-    mask_empty.fill(RED)
-    mask_filled = mask_filled.convert()
-    mask_empty = mask_empty.convert()
+    mask_empty.fill(RED).convert()
 
-# ---------- HEALTH MASK FUNCTION ----------
 def draw_health_masks(current_masks, max_masks=5):
-    """Draw health masks Hollow Knight style"""
-    mask_spacing = 10  # Space between masks
-    start_x = 20  # Starting X position
-    start_y = 20  # Starting Y position
-    
     for i in range(max_masks):
-        x = start_x + i * (mask_filled.get_width() + mask_spacing)
-        y = start_y
-        
-        if i < current_masks:
-            screen.blit(mask_filled, (x, y))
-        else:
-            screen.blit(mask_empty, (x, y))
+        x = 20 + i * (mask_filled.get_width() + 10)
+        screen.blit(mask_filled if i < current_masks else mask_empty, (x, 20))
 
- #PLATFORM CLASS ----------
-class Platform(pygame.sprite.Sprite):
-    def __init__(self, x, y, width, height, invisible=False):
-        super().__init__()
-        self.image = pygame.Surface((width, height))
-        if invisible:
-            self.image.set_alpha(0)
-            self.image.fill((0, 0, 0))
+# ---------- PARTICLE EFFECTS ----------
+class Particle:
+    def __init__(self, x, y, color, vel_x, vel_y, life):
+        self.x, self.y = x, y
+        self.color = color
+        self.vel_x, self.vel_y = vel_x, vel_y
+        self.life = life
+        self.max_life = life
+        self.size = random.randint(3, 8)
+    
+    def update(self):
+        self.x += self.vel_x
+        self.y += self.vel_y
+        self.vel_y += 0.3
+        self.life -= 1
+        return self.life > 0
+    
+    def draw(self):
+        alpha = int(255 * (self.life / self.max_life))
+        s = pygame.Surface((self.size * 2, self.size * 2), pygame.SRCALPHA)
+        color_with_alpha = (*self.color, alpha)
+        pygame.draw.circle(s, color_with_alpha, (self.size, self.size), self.size)
+        screen.blit(s, (int(self.x - self.size), int(self.y - self.size)))
+
+particles = []
+
+def create_particles(x, y, color, count=15):
+    for _ in range(count):
+        vel_x = random.uniform(-3, 3)
+        vel_y = random.uniform(-5, -1)
+        particles.append(Particle(x, y, color, vel_x, vel_y, random.randint(20, 40)))
+
+# ---------- PROJECTILE CLASS ----------
+class Projectile:
+    def __init__(self, x, y, target_x, target_y, speed, color, size=10):
+        self.x, self.y = x, y
+        angle = math.atan2(target_y - y, target_x - x)
+        self.vel_x = math.cos(angle) * speed
+        self.vel_y = math.sin(angle) * speed
+        self.color = color
+        self.size = size
+        self.rect = pygame.Rect(x - size//2, y - size//2, size, size)
+    
+    def update(self):
+        self.x += self.vel_x
+        self.y += self.vel_y
+        self.rect.center = (int(self.x), int(self.y))
+        return 0 <= self.x <= SCREEN_WIDTH and 0 <= self.y <= SCREEN_HEIGHT
+    
+    def draw(self):
+        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.size)
+        # Glow effect
+        s = pygame.Surface((self.size * 4, self.size * 4), pygame.SRCALPHA)
+        pygame.draw.circle(s, (*self.color, 100), (self.size * 2, self.size * 2), self.size * 2)
+        screen.blit(s, (int(self.x - self.size * 2), int(self.y - self.size * 2)))
+
+# ---------- BOSS CLASS ----------
+class Boss:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+        self.max_health = 600
+        self.health = self.max_health
+        self.alive = True
+        self.phase = 1
+        
+        # Load boss animation
+        self.animation_frames = []
+        self.scale = 0.5
+        try:
+            path = 'img/boss/Idle'
+            if os.path.exists(path):
+                num_files = len([f for f in os.listdir(path) if f.endswith('.png')])
+                for i in range(num_files):
+                    img = pygame.image.load(f'{path}/{i}.png').convert_alpha()
+                    img = pygame.transform.scale(img, (int(img.get_width() * self.scale), int(img.get_height() * self.scale)))
+                    self.animation_frames.append(img)
+                    print(f"Loaded boss frame {i}")
+            else:
+                print(f"Boss path not found: {path}")
+        except Exception as e:
+            print(f"Error loading boss animation: {e}")
+        
+        # Fallback if loading fails
+        if not self.animation_frames:
+            print("Using fallback boss graphics")
+            for _ in range(3):
+                img = pygame.Surface((100, 100), pygame.SRCALPHA)
+                pygame.draw.circle(img, WHITE, (50, 50), 40)
+                self.animation_frames.append(img)
+        
+        self.frame_index = 0
+        self.animation_speed = 100  # milliseconds per frame
+        self.last_update = pygame.time.get_ticks()
+        self.image = self.animation_frames[self.frame_index]
+        self.flip = False
+        
+        # Movement
+        self.vel_x, self.vel_y = 0, 0
+        self.target_x, self.target_y = x, y
+        self.movement_pattern = 'orbit'
+        self.pattern_timer = 0
+        self.orbit_angle = 0
+        
+        # Combat
+        self.attack_timer = 0
+        self.attack_cooldown = 10
+        self.damage_cooldown = 0
+        
+        # Phase 2
+        self.clones = []
+        self.clones_active = False
+        
+        # Phase 3
+        self.rage_mode = False
+        
+        self.rect = self.image.get_rect(center=(int(x), int(y)))
+        
+        # Intro
+        self.intro_mode = True
+        self.intro_timer = 120
+    
+    def take_damage(self, damage):
+        if self.damage_cooldown == 0:
+            self.health = max(0, self.health - damage)
+            self.damage_cooldown = 10
+            create_particles(self.x, self.y, WHITE, 20)
+            
+            # Phase transitions
+            if self.health <= 300 and self.phase == 1:
+                self.phase = 2
+                self.spawn_clones()
+                self.attack_cooldown = 60
+            elif self.health <= 100 and self.phase == 2:
+                self.phase = 3
+                self.rage_mode = True
+                self.attack_cooldown = 45
+                self.clones = []
+                self.clones_active = False
+            
+            if self.health <= 0:
+                self.alive = False
+                create_particles(self.x, self.y, WHITE, 50)
+    
+    def spawn_clones(self):
+        self.clones = []
+        positions = [
+            (SCREEN_WIDTH // 4, 200),
+            (3 * SCREEN_WIDTH // 4, 200),
+            (SCREEN_WIDTH // 2, 150)
+        ]
+        for pos in positions:
+            self.clones.append(BossClone(pos[0], pos[1], WHITE))
+        self.clones_active = True
+    
+    def update_animation(self):
+        now = pygame.time.get_ticks()
+        if now - self.last_update > self.animation_speed:
+            self.last_update = now
+            self.frame_index = (self.frame_index + 1) % len(self.animation_frames)
+            self.image = self.animation_frames[self.frame_index]
+    
+    def update(self, player):
+        if not self.alive:
+            return []
+        
+        # Update animation
+        self.update_animation()
+        
+        if self.intro_mode:
+            self.intro_timer -= 1
+            self.y = min(250, self.y + 2)
+            if self.intro_timer <= 0:
+                self.intro_mode = False
+            self.rect.center = (int(self.x), int(self.y))
+            return []
+        
+        if self.damage_cooldown > 0:
+            self.damage_cooldown -= 1
+        
+        # Movement patterns
+        self.pattern_timer += 1
+        
+        if self.phase == 1:
+            # Orbit pattern
+            if self.pattern_timer % 180 < 90:
+                self.orbit_angle += 0.03
+                self.target_x = SCREEN_WIDTH // 2 + math.cos(self.orbit_angle) * 200
+                self.target_y = 250 + math.sin(self.orbit_angle) * 100
+            else:
+                # Dash towards player
+                if self.pattern_timer % 180 == 90:
+                    self.target_x = player.rect.centerx
+                    self.target_y = max(200, min(400, player.rect.centery))
+        
+        elif self.phase == 2:
+            # Teleport pattern
+            if self.pattern_timer % 120 == 0:
+                self.x = random.randint(200, SCREEN_WIDTH - 200)
+                self.y = random.randint(150, 350)
+                create_particles(self.x, self.y, WHITE, 15)
+        
+        elif self.phase == 3:
+            # Aggressive pattern
+            if self.pattern_timer % 90 < 60:
+                self.target_x = player.rect.centerx
+                self.target_y = 250
+            else:
+                self.target_x = SCREEN_WIDTH // 2
+                self.target_y = 200
+        
+        # Smooth movement
+        self.vel_x = (self.target_x - self.x) * 0.05
+        self.vel_y = (self.target_y - self.y) * 0.05
+        self.x += self.vel_x
+        self.y += self.vel_y
+        
+        # Update flip based on movement direction
+        if self.vel_x < -0.5:
+            self.flip = True
+        elif self.vel_x > 0.5:
+            self.flip = False
+        
+        self.rect.center = (int(self.x), int(self.y))
+        
+        # Attacks
+        projectiles = []
+        self.attack_timer -= 1
+        
+        if self.attack_timer <= 0:
+            self.attack_timer = self.attack_cooldown
+            
+            if self.phase == 1:
+                # Single projectile
+                projectiles.append(Projectile(self.x, self.y, player.rect.centerx, player.rect.centery, 5, WHITE))
+            
+            elif self.phase == 2:
+                # Triple shot
+                for angle_offset in [-0.3, 0, 0.3]:
+                    angle = math.atan2(player.rect.centery - self.y, player.rect.centerx - self.x) + angle_offset
+                    target_x = self.x + math.cos(angle) * 500
+                    target_y = self.y + math.sin(angle) * 500
+                    projectiles.append(Projectile(self.x, self.y, target_x, target_y, 6, WHITE))
+            
+            elif self.phase == 3:
+                # Spiral pattern
+                for i in range(8):
+                    angle = (i / 8) * 2 * math.pi + self.pattern_timer * 0.05
+                    target_x = self.x + math.cos(angle) * 500
+                    target_y = self.y + math.sin(angle) * 500
+                    projectiles.append(Projectile(self.x, self.y, target_x, target_y, 7, WHITE, 8))
+        
+        return projectiles
+    
+    def draw(self):
+        # Get current image and flip if needed
+        img = pygame.transform.flip(self.image, self.flip, False)
+        
+        # Calculate draw position (center the sprite)
+        draw_x = self.rect.centerx - img.get_width() // 2
+        draw_y = self.rect.centery - img.get_height() // 2
+        
+        # Flash white when taking damage
+        if self.damage_cooldown > 0 and self.damage_cooldown % 4 < 2:
+            # Create white flash
+            flash_img = img.copy()
+            flash_img.fill((255, 255, 255, 200), special_flags=pygame.BLEND_RGB_ADD)
+            screen.blit(flash_img, (draw_x, draw_y))
         else:
-            self.image.fill((100, 100, 100))  # Gray platforms for visibility
-        # Convert for better performance
+            screen.blit(img, (draw_x, draw_y))
+        
+        # Boss name
+        font = pygame.font.Font(None, 32)
+        phase_text = f"The Radeanse - PHASE {self.phase}"
+        text = font.render(phase_text, True, WHITE)
+        screen.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2, 20))
+
+class BossClone:
+    def __init__(self, x, y, color):
+        self.x, self.y = x, y
+        self.size = 40
+        self.color = color
+        self.alpha = 150
+        self.lifetime = 300
+        self.rect = pygame.Rect(x - self.size//2, y - self.size//2, self.size, self.size)
+    
+    def update(self, player):
+        self.lifetime -= 1
+        projectiles = []
+        
+        if self.lifetime % 60 == 0:
+            projectiles.append(Projectile(self.x, self.y, player.rect.centerx, player.rect.centery, 4, WHITE, 6))
+        
+        self.rect.center = (int(self.x), int(self.y))
+        return projectiles, self.lifetime > 0
+    
+    def draw(self):
+        s = pygame.Surface((self.size * 2, self.size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(s, (*self.color, self.alpha), (self.size, self.size), self.size)
+        screen.blit(s, (int(self.x - self.size), int(self.y - self.size)))
+
+# ---------- PLATFORM CLASS ----------
+class Platform(pygame.sprite.Sprite):
+    def __init__(self, x, y, w, h, invisible=False):
+        super().__init__()
+        self.image = pygame.Surface((w, h))
+        if invisible: self.image.set_alpha(0)
         self.image = self.image.convert_alpha() if invisible else self.image.convert()
-        self.rect = pygame.Rect(x, y, width, height)
+        self.rect = pygame.Rect(x, y, w, h)
 
 platform_group = pygame.sprite.Group()
 
+# Platform setup
+VPLAT_WIDTH, VPLAT_HEIGHT, VPLAT_Y = 25, 100, 600
+VPLAT_LEFT_X, VPLAT_RIGHT_X = 475, 700
+GROUND_Y, GROUND_H = 650, 80
+
+left_x, left_w = 0, max(0, int(VPLAT_LEFT_X))
+mid_x, mid_w = int(VPLAT_LEFT_X), max(0, int(VPLAT_RIGHT_X - VPLAT_LEFT_X))
+right_x, right_w = int(VPLAT_RIGHT_X), max(0, SCREEN_WIDTH - int(VPLAT_RIGHT_X))
+
 platforms = [
-    (0, 650, SCREEN_WIDTH, 80, True),      # Ground/floor only
-    (0, 0, SCREEN_WIDTH, 1, True)
+    (left_x, GROUND_Y, left_w, GROUND_H, True),
+    (mid_x, GROUND_Y, mid_w, GROUND_H, True),
+    (right_x, GROUND_Y, right_w, GROUND_H, True),
+    (0, 700, SCREEN_WIDTH, 200, False),
 ]
 
-for platform_data in platforms:
-    platform = Platform(*platform_data)
+for p_data in platforms:
+    platform = Platform(*p_data)
     platform_group.add(platform)
+    if p_data[0] == mid_x and p_data[2] == mid_w and p_data[3] == GROUND_H:
+        middle_ground_platform = platform
 
+ROOF_Y, ROOF_H = -350, 400
+for roof_data in [(left_x, ROOF_Y, left_w, ROOF_H, True), (mid_x, ROOF_Y, mid_w, ROOF_H, True), (right_x, ROOF_Y, right_w, ROOF_H, True)]:
+    roof_plat = Platform(*roof_data)
+    platform_group.add(roof_plat)
+    if roof_data[0] == mid_x and roof_data[2] == mid_w:
+        middle_roof_platform = roof_plat
 
-def create_static_background():
-    """Create a single surface with background and platforms combined"""
+def create_vertical_platforms():
+    global vertical_platforms_active, vertical_platforms
+    if vertical_platforms_active: return
+    
+    p1 = Platform(VPLAT_LEFT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, True)
+    p2 = Platform(VPLAT_RIGHT_X, VPLAT_Y, VPLAT_WIDTH, VPLAT_HEIGHT, True)
+    
+    for p in [p1, p2]:
+        orig_rect = p.rect.copy()
+        try: b = p.image.get_bounding_rect()
+        except: b = p.image.get_rect()
+        p.rect = pygame.Rect(orig_rect.x + b.x, orig_rect.y + b.y, b.width, b.height)
+        p._visual_rect = orig_rect
+        platform_group.add(p)
+    
+    vertical_platforms = [p1, p2]
+    vertical_platforms_active = True
+
+def remove_vertical_platforms():
+    global vertical_platforms_active, vertical_platforms
+    for p in list(vertical_platforms):
+        try: platform_group.remove(p)
+        except: pass
+    vertical_platforms = []
+    vertical_platforms_active = False
+
+def create_static_background(black_bg=False):
     bg_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    bg_surface.blit(Back, (0, 0))  # Draw background
-    
-    # Draw non-invisible platforms onto the background
+    bg_surface.fill((0, 0, 0) if black_bg else BG) if black_bg else bg_surface.blit(Back, (0, 0))
     for platform in platform_group:
-        if platform.image.get_alpha() != 0:  # Only draw visible platforms
+        if black_bg or platform.image.get_alpha() != 0:
             bg_surface.blit(platform.image, platform.rect)
-    
-    return bg_surface.convert()  # Convert for faster blitting
+    return bg_surface.convert()
 
-# Create the static background once
 static_background = create_static_background()
 
 def draw_bg():
-    """OPTIMIZED: Just blit the pre-rendered background"""
     screen.blit(static_background, (0, 0))
+
+def draw_well():
+    if well_img: screen.blit(well_img, (450, 575))
+
+def draw_well_front():
+    if well2_img: screen.blit(well2_img, (450, 612))
+
+def enemy1_dead():
+    create_vertical_platforms()
+    for plat, name in [(middle_ground_platform, 'ground'), (middle_roof_platform, 'roof')]:
+        try:
+            platform_group.remove(plat)
+            static_background = create_static_background()
+        except: pass
+
+# ---------- LOAD ANIMATIONS ----------
+def load_animations(char_type, types, scale, color=(0, 100, 200)):
+    animation_list = []
+    for anim in types:
+        temp_list = []
+        try:
+            path = f'img/{char_type}/{anim}'
+            if os.path.exists(path):
+                for i in range(len(os.listdir(path))):
+                    img = load_img(f'{path}/{i}.png', alpha=True)
+                    img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
+                    temp_list.append(img)
+            else:
+                for _ in range(4):
+                    img = pygame.Surface((70 if char_type == 'enemy' else 60, 90 if char_type == 'enemy' else 80))
+                    temp_list.append(img.fill(color).convert())
+        except:
+            for _ in range(4):
+                img = pygame.Surface((70 if char_type == 'enemy' else 60, 90 if char_type == 'enemy' else 80))
+                temp_list.append(img.fill(color).convert())
+        animation_list.append(temp_list)
+    return animation_list
 
 # ---------- ENEMY CLASS ----------
 class Enemy1(pygame.sprite.Sprite):
     def __init__(self, x, y, scale, speed):
         super().__init__()
         self.alive = True
-        self.speed = speed * 2.5  # Make enemy1 20% faster than player
-        self.direction = -1
-        self.flip = False  # Start flipped since direction is -1
-        
-        # Health
-        self.max_health = 120
-        self.health = self.max_health
-        
-        # Movement
-        self.vel_y = 0
-        self.in_air = True
-        self.patrol_distance = 500
-        self.start_x = x
-        
-        # Jumping
-        self.can_jump = True
-        self.jump_cooldown = 0
-        self.jump_timer = 180  # 3 seconds at 60 FPS
-        self.is_jumping = False
-        
-        # AI states
-        self.state = 'patrol'  # 'patrol', 'chase'
-        self.detection_range = 250
-        self.reaction_time = 60
-        
-        # Animation system
-        self.animation_list = []
-        self.frame_index = 0
-        self.action = 0
-        self.update_time = pygame.time.get_ticks()
-        
-        # Load animations with error handling and convert for performance
-        animation_types = ['Idle', 'Run']
-        for animation in animation_types:
-            temp_list = []
-            try:
-                animation_path = f'img/enemy/{animation}'
-                if os.path.exists(animation_path):
-                    num_of_frames = len(os.listdir(animation_path))
-                    for i in range(num_of_frames):
-                        img = pygame.image.load(f'{animation_path}/{i}.png')
-                        img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
-                        img = img.convert_alpha()  # Convert for better performance
-                        temp_list.append(img)
-                else:
-                    # Fallback: create simple colored rectangles
-                    for i in range(4):  # 4 frames fallback
-                        img = pygame.Surface((70, 90))
-                        img.fill((255, 0, 0))  # Red enemy1
-                        img = img.convert()
-                        temp_list.append(img)
-            except:
-                # Fallback animation
-                for i in range(4):
-                    img = pygame.Surface((70, 90))
-                    img.fill((255, 0, 0))
-                    img = img.convert()
-                    temp_list.append(img)
-            
-            self.animation_list.append(temp_list)
-
+        self.speed, self.direction, self.flip = speed * 2.5, -1, False
+        self.max_health, self.health = 120, 120
+        self.vel_x, self.vel_y, self.in_air = 0, 0, True
+        self.patrol_distance, self.start_x = 500, x
+        self.can_jump, self.jump_cooldown, self.jump_timer, self.is_jumping = True, 0, 180, False
+        self.state, self.detection_range, self.reaction_time = 'patrol', 250, 60
+        self.detection_timer = 0
+        self.animation_list = load_animations('enemy', ['Idle', 'Run'], scale, (255, 0, 0))
+        self.frame_index, self.action, self.update_time = 0, 0, pygame.time.get_ticks()
         self.image = self.animation_list[self.action][self.frame_index]
-        self.rect = self.image.get_rect()
-        self.rect.center = (x, y)
+        self.rect = self.image.get_rect(center=(x, y))
 
     def take_damage(self, damage):
-        self.health -= damage
-        if self.health <= 0:
-            self.health = 0
-            self.alive = False
+        self.health = max(0, self.health - damage)
+        self.alive = self.health > 0
 
     def ai_behavior(self, player):
-        if not self.alive or not player.alive:
+        if not (self.alive and player.alive):
             return
-            
-        dx = 0
-        dy = 0
-        
-        # Calculate distance to player
+
+        dx = dy = 0
         distance_to_player = abs(self.rect.centerx - player.rect.centerx)
-        player_height_diff = self.rect.centery - player.rect.centery
-        
-        # Update cooldowns
+
         if self.jump_cooldown > 0:
             self.jump_cooldown -= 1
 
-        # Patrol behavior
-        elif self.state == 'patrol':
-            if self.rect.centerx <= self.start_x - self.patrol_distance:
-                self.direction = 1
-                self.flip = False
-            elif self.rect.centerx >= self.start_x + self.patrol_distance:
-                self.direction = -1
-                self.flip = True
-            
-            dx = self.speed * self.direction
-            
-            # Random jump while patrolling (small chance)
-            # enemy1_JUMP_CHANCE is a float probability in [0,1]
-            if (
-                not self.in_air
-                and self.jump_cooldown == 0
-                and random.random() < enemy1_JUMP_CHANCE
-            ):
-                if abs(dx) > 0:  # Only jump if moving
-                    self.vel_y = JUMP_SPEED * 0.8  # Smaller patrol jump
-                    self.in_air = True
-                    self.jump_cooldown = 60  # cooldown in frames   
-        
-        
+        # Determine target position/velocity
+        target_x = self.start_x
+        acceleration = 0.5
+        max_speed = self.speed
 
+        if self.state == 'patrol':
+            patrol_range = self.patrol_distance
+            if self.rect.centerx <= self.start_x - patrol_range:
+                target_x = self.start_x + patrol_range / 2
+                self.direction, self.flip = 1, False
+            elif self.rect.centerx >= self.start_x + patrol_range:
+                target_x = self.start_x - patrol_range / 2
+                self.direction, self.flip = -1, True
+            else:
+                target_x = self.start_x + (patrol_range * self.direction)
+
+            # Random jump while patrolling
+            if not self.in_air and self.jump_cooldown == 0 and random.random() < enemy1_JUMP_CHANCE:
+                self.vel_y, self.in_air, self.jump_cooldown = JUMP_SPEED * 0.8, True, 60
+
+        elif self.state == 'chase':
+            target_x = player.rect.centerx
+            acceleration = 0.8
+            max_speed = self.speed * 1.2
+            if target_x > self.rect.centerx:
+                self.direction, self.flip = 1, True
+            else:
+                self.direction, self.flip = -1, False
+
+        # State transition check (detection timer)
         if distance_to_player <= self.detection_range:
             if self.state == 'patrol':
                 self.detection_timer += 1
@@ -261,557 +557,336 @@ class Enemy1(pygame.sprite.Sprite):
                     self.detection_timer = 0
         else:
             self.state = 'patrol'
-            self.detection_timer = 0  # Reset timer when player leaves range
+            self.detection_timer = 0
 
+        # Compute target horizontal velocity and smooth towards it
+        target_vel_x = 0
+        if abs(target_x - self.rect.centerx) > 5:
+            target_vel_x = max_speed if target_x > self.rect.centerx else -max_speed
 
-        
-        # Calculate movement speed (90% when jumping)
-        current_speed = self.speed * 0.9 if self.is_jumping else self.speed
-        
-        # Chase behavior
-        if self.state == 'chase':
-            # Face player (reversed flip logic)
-            if player.rect.centerx > self.rect.centerx:
-                self.direction = 1
-                self.flip = True  # Flipped from original
-                dx = current_speed
-            else:
-                self.direction = -1
-                self.flip = False  # Flipped from original
-                dx = -current_speed
-        
-        # Patrol behavior
-        elif self.state == 'patrol':
-            if self.rect.centerx <= self.start_x - self.patrol_distance:
-                self.direction = 1
-                self.flip = True  # Flipped from original
-            elif self.rect.centerx >= self.start_x + self.patrol_distance:
-                self.direction = -1
-                self.flip = False  # Flipped from original
-            
-            dx = current_speed * self.direction
-            
-            # Random jump while patrolling (removed old jump logic since we now have timed jumps)
-        
-        # Apply gravity
-        self.vel_y += GRAVITY
-        if self.vel_y > 10:
-            self.vel_y = 10
+        if target_vel_x > self.vel_x:
+            self.vel_x = min(target_vel_x, self.vel_x + acceleration)
+        elif target_vel_x < self.vel_x:
+            self.vel_x = max(target_vel_x, self.vel_x - acceleration)
+
+        dx = self.vel_x
+
+        self.vel_y = min(10, self.vel_y + GRAVITY)
         dy += self.vel_y
-        
-        # Horizontal movement and collision
+
         self.rect.x += dx
         for platform in platform_group:
             if self.rect.colliderect(platform.rect):
                 if dx > 0:
                     self.rect.right = platform.rect.left
-                    if self.state == 'patrol':
-                        self.direction = -1
-                        self.flip = True
+                    if self.state == 'patrol': self.direction, self.flip = -1, True
                 elif dx < 0:
                     self.rect.left = platform.rect.right
-                    if self.state == 'patrol':
-                        self.direction = 1
-                        self.flip = False
-        
-        # Vertical movement and collision
+                    if self.state == 'patrol': self.direction, self.flip = 1, False
+
         self.rect.y += dy
         self.in_air = True
         for platform in platform_group:
             if self.rect.colliderect(platform.rect):
                 if self.vel_y > 0:
-                    self.rect.bottom = platform.rect.top
-                    self.vel_y = 0
-                    self.in_air = False
-                    self.is_jumping = False  # Reset jumping state when landing
+                    self.rect.bottom, self.vel_y, self.in_air, self.is_jumping = platform.rect.top, 0, False, False
                 elif self.vel_y < 0:
-                    self.rect.top = platform.rect.bottom
-                    self.vel_y = 0
-        
-        # Keep enemy1 on screen
+                    self.rect.top, self.vel_y = platform.rect.bottom, 0
+
         if self.rect.left < 0:
             self.rect.left = 0
-            if self.state == 'patrol':
-                self.direction = 1
-                self.flip = False
+            if self.state == 'patrol': self.direction, self.flip = 1, False
         elif self.rect.right > SCREEN_WIDTH:
             self.rect.right = SCREEN_WIDTH
-            if self.state == 'patrol':
-                self.direction = -1
-                self.flip = True
+            if self.state == 'patrol': self.direction, self.flip = -1, True
 
     def update_animation(self):
-        ANIMATION_COOLDOWN = 50  # Made faster - was 100
-        
-        # Save bottom position to maintain consistent height
-        old_bottom = self.rect.bottom
-        old_centerx = self.rect.centerx
-        
-        # Update image and recreate rect
+        old_bottom, old_centerx = self.rect.bottom, self.rect.centerx
         self.image = self.animation_list[self.action][self.frame_index]
-        new_rect = self.image.get_rect()
-        new_rect.centerx = old_centerx
-        new_rect.bottom = old_bottom
-        self.rect = new_rect
+        self.rect = self.image.get_rect(centerx=old_centerx, bottom=old_bottom)
         
-        if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
+        if pygame.time.get_ticks() - self.update_time > 50:
             self.update_time = pygame.time.get_ticks()
-            self.frame_index += 1
-            
-            if self.frame_index >= len(self.animation_list[self.action]):
-                self.frame_index = 0
+            self.frame_index = (self.frame_index + 1) % len(self.animation_list[self.action])
 
     def update_action(self, new_action):
         if new_action != self.action:
-            self.action = new_action
-            self.frame_index = 0
-            self.update_time = pygame.time.get_ticks()
+            self.action, self.frame_index, self.update_time = new_action, 0, pygame.time.get_ticks()
 
     def draw(self):
-        # Update animation based on state
-        if self.state == 'chase' or self.state == 'patrol':
-            # Check if enemy1 is actually moving
-            if abs(self.speed) > 0:
-                self.update_action(1)  # Run animation
-            else:
-                self.update_action(0)  # Idle animation
-        else:
-            self.update_action(0)  # Idle animation
-        
-        # Update animation frame
+        self.update_action(1 if abs(self.speed) > 0 and self.state in ['chase', 'patrol'] else 0)
         self.update_animation()
-        
-        # Flip the image if needed
         img = pygame.transform.flip(self.image, self.flip, False)
-        
-        # Draw sprite anchored to bottom of collision rect
-        draw_x = self.rect.left
-        draw_y = self.rect.bottom - img.get_height()
-        screen.blit(img, (draw_x, draw_y))
+        screen.blit(img, (self.rect.left, self.rect.bottom - img.get_height()))
 
 # ---------- PLAYER CLASS ----------
 class Player(pygame.sprite.Sprite):
     def __init__(self, char_type, x, y, scale, speed):
         super().__init__()
-        self.alive = True
-        self.char_type = char_type
-        self.speed = speed
-        self.direction = 1
-        self.flip = False
+        self.alive, self.char_type, self.speed, self.direction, self.flip = True, char_type, speed, 1, False
+        self.max_masks, self.current_masks, self.damage_cooldown = 5, 5, 0
+        self.vel_y, self.in_air, self.jump_pressed, self.jump_timer = 0, True, False, 0
+        self.wall_sliding, self.wall_side, self.wall_slide_speed = False, 0, 2
+        self.dashing, self.dash_timer, self.dash_cooldown = False, 0, 0
+        self.attacking, self.attack_type, self.attack_timer, self.attack_cooldown, self.attack_rect = False, None, 0, 0, None
         
-        # Health - Modified for mask system
-        self.max_masks = 5  # 5 masks like Hollow Knight
-        self.current_masks = 5  # Start with full health
-        self.damage_cooldown = 0  # Invincibility frames after taking damage
-
-        # Jump
-        self.vel_y = 0
-        self.in_air = True
-        self.jump_pressed = False
-        self.jump_timer = 0
-        
-        # Wall jump mechanics
-        self.wall_sliding = False
-        self.wall_side = 0  # -1 for left wall, 1 for right wall, 0 for no wall
-        self.wall_slide_speed = 2  # Speed when sliding down wall
-
-        # Dash
-        self.dashing = False
-        self.dash_timer = 0
-        self.dash_cooldown = 0
-
-        # Attack
-        self.attacking = False
-        self.attack_type = None  # "side", "up", "down"
-        self.attack_timer = 0
-        self.attack_cooldown = 0
-        self.attack_rect = None
-
-        # Animations
-        self.animation_list = []
-        self.frame_index = 0
-        self.action = 0
-        self.update_time = pygame.time.get_ticks()
-
-        # OPTIMIZED: Load animations with error handling and convert for performance
-        animation_types = ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack', 'Attack_Up', 'Attack_Down']
-        for animation in animation_types:
-            temp_list = []
-            try:
-                animation_path = f'img/{self.char_type}/{animation}'
-                if os.path.exists(animation_path):
-                    num_of_frames = len(os.listdir(animation_path))
-                    for i in range(num_of_frames):
-                        img = pygame.image.load(f'{animation_path}/{i}.png')
-                        img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
-                        img = img.convert_alpha()  # Convert for better performance
-                        temp_list.append(img)
-                else:
-                    # Fallback: create simple colored rectangles
-                    for i in range(4):  # 4 frames fallback
-                        img = pygame.Surface((60, 80))
-                        img.fill((0, 100, 200))  # Blue player
-                        img = img.convert()
-                        temp_list.append(img)
-            except:
-                # Fallback animation
-                for i in range(4):
-                    img = pygame.Surface((60, 80))
-                    img.fill((0, 100, 200))
-                    img = img.convert()
-                    temp_list.append(img)
-            
-            self.animation_list.append(temp_list)
-
+        self.animation_list = load_animations('player', ['Idle', 'Run', 'Jump', 'Fall', 'Dash', 'Attack', 'Attack_Up', 'Attack_Down'], scale)
+        self.frame_index, self.action, self.update_time = 0, 0, pygame.time.get_ticks()
         self.image = self.animation_list[self.action][self.frame_index]
-        self.rect = self.image.get_rect()
-        self.rect.center = (x, y)
+        self.rect = self.image.get_rect(center=(x, y))
 
     def take_damage(self, damage):
-        # Only take damage if not in invincibility frames
         if self.damage_cooldown == 0 and not self.dashing:
-            self.current_masks -= 1  # Lose one mask
-            self.damage_cooldown = 90  # 1 second of invincibility at 60 FPS
-            
-            if self.current_masks <= 0:
-                self.current_masks = 0
-                self.alive = False
+            self.current_masks = max(0, self.current_masks - 1)
+            self.damage_cooldown = 90
+            if self.current_masks <= 0: self.alive = False
 
     def create_attack_hitbox(self, attack_type):
-        """Create the attack hitbox based on attack type"""
         if attack_type == 'up':
-            return pygame.Rect(
-                self.rect.centerx - ATTACK_WIDTH // 2,
-                self.rect.top - ATTACK_RANGE,
-                ATTACK_WIDTH,
-                ATTACK_RANGE
-            )
+            return pygame.Rect(self.rect.centerx - ATTACK_WIDTH // 2, self.rect.top - ATTACK_RANGE, ATTACK_WIDTH, ATTACK_RANGE)
         elif attack_type == 'down':
-            return pygame.Rect(
-                self.rect.centerx - ATTACK_WIDTH // 2,
-                self.rect.bottom,
-                ATTACK_WIDTH,
-                ATTACK_RANGE
-            )
-        else:  # side attack
+            return pygame.Rect(self.rect.centerx - ATTACK_WIDTH // 2, self.rect.bottom, ATTACK_WIDTH, ATTACK_RANGE)
+        else:
             x = self.rect.right if self.direction == 1 else self.rect.left - ATTACK_RANGE
-            return pygame.Rect(
-                x,
-                self.rect.centery - ATTACK_HEIGHT // 2,
-                ATTACK_RANGE,
-                ATTACK_HEIGHT
-            )
+            return pygame.Rect(x, self.rect.centery - ATTACK_HEIGHT // 2, ATTACK_RANGE, ATTACK_HEIGHT)
 
     def attack(self):
-        # Only attack if not on cooldown and not dashing
-        if self.attack_cooldown > 0 or self.dashing:
-            return
-
+        if self.attack_cooldown > 0 or self.dashing: return
+        
         keys = pygame.key.get_pressed()
-        self.attacking = True
-        self.attack_cooldown = 20
-
-        # Determine attack type
+        self.attacking, self.attack_cooldown = True, 20
+        
         if keys[pygame.K_w]:
-            self.attack_type = 'up'
-            animation_index = 6
+            self.attack_type, animation_index = 'up', 6
         elif keys[pygame.K_s] and self.in_air:
-            self.attack_type = 'down'
-            animation_index = 7
+            self.attack_type, animation_index = 'down', 7
         else:
-            self.attack_type = 'side'
-            animation_index = 5
-
-        # Set attack duration and animation
+            self.attack_type, animation_index = 'side', 5
+        
         self.attack_timer = len(self.animation_list[animation_index]) * 40
         self.update_action(animation_index)
-
-        # Create the attack hitbox
         self.attack_rect = self.create_attack_hitbox(self.attack_type)
 
     def move(self, moving_left, moving_right):
-        dx = 0
-        dy = 0
+        global waiting_for_reentry, waiting_for_reentry_counter, well_img, well2_img, boss_env_suppressed, roof_restored, middle_platforms_visible
+        global boss_fight_active, boss
+        
+        dx = dy = 0
         keys = pygame.key.get_pressed()
         mouse = pygame.mouse.get_pressed()
 
-        # Update damage cooldown
-        if self.damage_cooldown > 0:
-            self.damage_cooldown -= 1
+        if self.damage_cooldown > 0: self.damage_cooldown -= 1
 
-        # Dash input
         if mouse[2] and not self.dashing and self.dash_cooldown == 0 and not self.attacking:
-            self.dashing = True
-            self.dash_timer = DASH_TIME
-            self.dash_cooldown = DASH_COOLDOWN
-            self.vel_y = 0
+            self.dashing, self.dash_timer, self.dash_cooldown, self.vel_y = True, DASH_TIME, DASH_COOLDOWN, 0
             self.update_action(4)
 
         if self.dashing:
-            dx = DASH_SPEED * self.direction
-            dy = 0
+            dx, dy = DASH_SPEED * self.direction, 0
             self.update_action(4)
             self.dash_timer -= 1
-            if self.dash_timer <= 0:
-                self.dashing = False
+            if self.dash_timer <= 0: self.dashing = False
         else:
-            if moving_left:
-                dx = -self.speed
-                self.flip = True
-                self.direction = -1
-            if moving_right:
-                dx = self.speed
-                self.flip = False
-                self.direction = 1
+            if moving_left: dx, self.flip, self.direction = -self.speed, True, -1
+            if moving_right: dx, self.flip, self.direction = self.speed, False, 1
 
-            # Wall jump logic
             if keys[pygame.K_SPACE]:
                 if not self.jump_pressed:
                     self.jump_pressed = True
                     if not self.in_air:
-                        # Ground jump
-                        self.vel_y = JUMP_SPEED
-                        self.in_air = True
-                        self.jump_timer = MAX_JUMP_TIME
+                        self.vel_y, self.in_air, self.jump_timer = JUMP_SPEED, True, MAX_JUMP_TIME
                     elif self.wall_sliding:
-                        # Wall jump - sends you up and to opposite side with more outward force
-                        self.vel_y = JUMP_SPEED  # Up
-                        if self.wall_side == -1:  # Left wall
-                            dx = self.speed * 4  # Go right with more force
-                            self.flip = False
-                            self.direction = 1
-                        elif self.wall_side == 1:  # Right wall
-                            dx = -self.speed * 4  # Go left with more force
-                            self.flip = True
-                            self.direction = -1
-                        self.wall_sliding = False
-                        self.wall_side = 0
-                        self.jump_timer = MAX_JUMP_TIME
+                        self.vel_y, self.wall_sliding, self.wall_side, self.jump_timer = JUMP_SPEED, False, 0, MAX_JUMP_TIME
+                        if self.wall_side == -1: dx, self.flip, self.direction = self.speed * 4, False, 1
+                        else: dx, self.flip, self.direction = -self.speed * 4, True, -1
                 else:
-                    # Variable height jumping
                     if self.jump_timer > 0 and not self.wall_sliding:
                         self.vel_y += JUMP_HOLD_FORCE
                         self.jump_timer -= 1
             else:
-                self.jump_pressed = False
-                self.jump_timer = 0
+                self.jump_pressed, self.jump_timer = False, 0
 
-            # Apply gravity (reduced when wall sliding)
             if self.wall_sliding:
-                # Slower fall when wall sliding
-                self.vel_y += GRAVITY * 0.3
-                if self.vel_y > self.wall_slide_speed:
-                    self.vel_y = self.wall_slide_speed
+                self.vel_y = min(self.wall_slide_speed, self.vel_y + GRAVITY * 0.3)
             else:
-                self.vel_y += GRAVITY
-                if self.vel_y > 10:
-                    self.vel_y = 10
+                self.vel_y = min(10, self.vel_y + GRAVITY)
             dy += self.vel_y
 
-        # Dash cooldown
-        if self.dash_cooldown > 0:
-            self.dash_cooldown -= 1
+        if self.dash_cooldown > 0: self.dash_cooldown -= 1
 
-        # Update attack state
         if self.attacking:
             self.attack_timer -= 1
-            
-            # End attack if timer runs out
             if self.attack_timer <= 0:
-                self.attacking = False
-                self.attack_type = None
-                self.attack_rect = None
-            # Update attack hitbox position
+                self.attacking, self.attack_type, self.attack_rect = False, None, None
             elif self.attack_rect:
                 self.attack_rect = self.create_attack_hitbox(self.attack_type)
 
-        # Update attack cooldown
-        if self.attack_cooldown > 0:
-            self.attack_cooldown -= 1
+        if self.attack_cooldown > 0: self.attack_cooldown -= 1
 
-        # HORIZONTAL COLLISIONS AND WALL DETECTION (screen borders only)
         self.rect.x += dx
-        
-        # Check screen boundaries for wall jumping
+        for platform in platform_group:
+            if self.rect.colliderect(platform.rect):
+                if dx > 0:
+                    self.rect.right = platform.rect.left
+                    if self.in_air: self.wall_sliding, self.wall_side = True, 1
+                elif dx < 0:
+                    self.rect.left = platform.rect.right
+                    if self.in_air: self.wall_sliding, self.wall_side = True, -1
+
         if self.in_air and self.vel_y > 0:
             if self.rect.left <= 0:
                 self.rect.left = 0
-                # Check if player is moving toward the left wall
-                if moving_left:
-                    self.wall_sliding = True
-                    self.wall_side = -1
-                else:
-                    self.wall_sliding = False
-                    self.wall_side = 0
+                self.wall_sliding, self.wall_side = (True, -1) if moving_left else (False, 0)
             elif self.rect.right >= SCREEN_WIDTH:
                 self.rect.right = SCREEN_WIDTH
-                # Check if player is moving toward the right wall
-                if moving_right:
-                    self.wall_sliding = True
-                    self.wall_side = 1
-                else:
-                    self.wall_sliding = False
-                    self.wall_side = 0
+                self.wall_sliding, self.wall_side = (True, 1) if moving_right else (False, 0)
             else:
-                # Not touching any walls
-                self.wall_sliding = False
-                self.wall_side = 0
+                self.wall_sliding, self.wall_side = False, 0
         else:
-            # Normal screen boundary collision when not in air or not falling
-            if self.rect.left < 0:
-                self.rect.left = 0
-            elif self.rect.right > SCREEN_WIDTH:
-                self.rect.right = SCREEN_WIDTH
-            self.wall_sliding = False
-            self.wall_side = 0
+            self.rect.left = max(0, self.rect.left)
+            self.rect.right = min(SCREEN_WIDTH, self.rect.right)
+            self.wall_sliding, self.wall_side = False, 0
 
-        # Vertical collisions
         self.rect.y += dy
         self.in_air = True
         for platform in platform_group:
             if self.rect.colliderect(platform.rect):
                 if self.vel_y > 0:
-                    self.rect.bottom = platform.rect.top
-                    self.vel_y = 0
-                    self.in_air = False
-                    self.jump_timer = 0
-                    # Reset wall sliding when touching ground
-                    self.wall_sliding = False
-                    self.wall_side = 0
+                    self.rect.bottom, self.vel_y, self.in_air, self.jump_timer = platform.rect.top, 0, False, 0
+                    self.wall_sliding, self.wall_side = False, 0
                 elif self.vel_y < 0:
-                    self.rect.top = platform.rect.bottom
-                    self.vel_y = 0
+                    self.rect.top, self.vel_y = platform.rect.bottom, 0
 
-        if self.rect.left < 0:
-            self.rect.left = 0
-        elif self.rect.right > SCREEN_WIDTH:
-            self.rect.right = SCREEN_WIDTH
+        # Check if falling through well - trigger boss fight
+        if self.rect.top > SCREEN_HEIGHT - 200 and not boss_fight_active:
+            try: img_h = self.image.get_height()
+            except: img_h = 64
+            
+            self.rect.top, self.vel_y = -img_h - 300, 0
+            
+            try:
+                well_img, well2_img, boss_env_suppressed, roof_restored = None, None, True, False
+                if middle_ground_platform not in platform_group:
+                    platform_group.add(middle_ground_platform)
+                    middle_platforms_visible = True
+                remove_vertical_platforms()
+            except: pass
+            
+            waiting_for_reentry, waiting_for_reentry_counter = True, 120
+            boss_fight_active = True
+            boss = Boss(SCREEN_WIDTH // 2, -100)
 
     def update_animation(self):
-        ANIMATION_COOLDOWN = 100
-        if self.action in [5, 6, 7]:  # attack animations faster
-            ANIMATION_COOLDOWN = 3
-
+        cooldown = 3 if self.action in [5, 6, 7] else 100
         self.image = self.animation_list[self.action][self.frame_index]
-        if pygame.time.get_ticks() - self.update_time > ANIMATION_COOLDOWN:
+        
+        if pygame.time.get_ticks() - self.update_time > cooldown:
             self.update_time = pygame.time.get_ticks()
             self.frame_index += 1
-
             if self.frame_index >= len(self.animation_list[self.action]):
                 if self.action in [5, 6, 7]:
-                    self.attacking = False
-                    self.attack_type = None
-                    self.attack_rect = None
+                    self.attacking, self.attack_type, self.attack_rect = False, None, None
                 self.frame_index = 0
         
-        # Downward pogo mechanic for last 3 frames
-        if self.action == 7 and self.attack_rect and self.attacking:  # Attack_Down
-            last_frames_start = len(self.animation_list[7]) - 3
-            if self.frame_index >= last_frames_start:
-                # Update attack_rect position each frame
-                self.attack_rect.centerx = self.rect.centerx
-                self.attack_rect.y = self.rect.bottom
+        if self.action == 7 and self.attack_rect and self.attacking:
+            if self.frame_index >= len(self.animation_list[7]) - 3:
+                self.attack_rect.centerx, self.attack_rect.y = self.rect.centerx, self.rect.bottom
 
     def update_action(self, new_action):
         if new_action != self.action:
-            self.action = new_action
-            self.frame_index = 0
-            self.update_time = pygame.time.get_ticks()
+            self.action, self.frame_index, self.update_time = new_action, 0, pygame.time.get_ticks()
 
     def draw(self):
         img = pygame.transform.flip(self.image, self.flip, False)
-
-        draw_x = self.rect.left
-        draw_y = self.rect.bottom - img.get_height()
-
-        # Simple fixed offset for attack animation
-        if self.action == 5:  # Side Attack
-            if self.direction == 1:  # Facing right
-                draw_x += 15
-            else:  # Facing left
-                draw_x -= 30
-        elif self.action == 7:  # Down Attack
-            draw_y += 30  # move sprite downward a bit
-
-        # Flash effect when in invincibility frames (optional)
+        draw_x, draw_y = self.rect.left, self.rect.bottom - img.get_height()
+        
+        if self.action == 5:
+            draw_x += 15 if self.direction == 1 else -30
+        elif self.action == 7:
+            draw_y += 30
+        
         if self.damage_cooldown > 0 and self.damage_cooldown % 10 < 5:
-            # Make player semi-transparent when invincible
             img.set_alpha(128)
         else:
             img.set_alpha(255)
-
+        
         screen.blit(img, (draw_x, draw_y))
 
-# ---------- COMBAT SYSTEM ----------
 def check_combat(player, enemy1):
-    # Player attacking enemy1
     if player.attacking and player.attack_rect and enemy1.alive:
         if player.attack_rect.colliderect(enemy1.rect):
             enemy1.take_damage(ATTACK_DAMAGE)
-            
-            # Special bounce for downward attack
             if player.attack_type == 'down' and player.vel_y >= 0:
-                player.vel_y = -13  # Bounce up
-                player.attacking = False
-                player.attack_cooldown = 15
-                player.update_action(0)  # Back to idle
-            
-            # Prevent multiple hits from same attack
+                player.vel_y, player.attacking, player.attack_cooldown = -13, False, 15
+                player.update_action(0)
             player.attack_rect = None
-
-    # enemy1 damages player on collision (with invincibility frames check)
+    
     if enemy1.alive and player.alive and player.rect.colliderect(enemy1.rect):
-        player.take_damage(1)  # Take 1 mask of damage
+        player.take_damage(1)
 
-# ---------- DRAW enemy1 HEALTH BAR ----------
 def draw_enemy1_health_bar(enemy1):
-    """Draw a simple health bar for the enemy1"""
     if enemy1.alive and enemy1.health < enemy1.max_health:
-        bar_width = 50
-        bar_height = 5
-        bar_x = enemy1.rect.centerx - bar_width // 2
-        bar_y = enemy1.rect.top - 15
-        
-        # Background
-        pygame.draw.rect(screen, RED, (bar_x, bar_y, bar_width, bar_height))
-        
-        # Health
-        health_width = int(bar_width * (enemy1.health / enemy1.max_health))
-        pygame.draw.rect(screen, GREEN, (bar_x, bar_y, health_width, bar_height))
+        bar_w, bar_h = 50, 5
+        bar_x, bar_y = enemy1.rect.centerx - bar_w // 2, enemy1.rect.top - 15
+        pygame.draw.rect(screen, RED, (bar_x, bar_y, bar_w, bar_h))
+        pygame.draw.rect(screen, GREEN, (bar_x, bar_y, int(bar_w * (enemy1.health / enemy1.max_health)), bar_h))
 
-# ---------- MAIN MENU ----------
 def draw_main_menu():
-    """Draw the main menu screen"""
     try:
-        main_menu_img = pygame.image.load('img/BG/main_screen.png')
-        main_menu_img = pygame.transform.scale(main_menu_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
-        main_menu_img = main_menu_img.convert()
-        screen.blit(main_menu_img, (0, 0))
-    except pygame.error:
-        # Fallback if image doesn't exist
+        menu = load_img('img/BG/main_screen.png', (SCREEN_WIDTH, SCREEN_HEIGHT), False)
+        screen.blit(menu, (0, 0))
+    except:
         screen.fill((50, 50, 100))
         font = pygame.font.Font(None, 74)
-        text = font.render('POXEL', True, WHITE)
-        text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
-        screen.blit(text, text_rect)
-        
+        screen.blit(font.render('POXXEL', True, WHITE), font.render('POXXEL', True, WHITE).get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50)))
         font_small = pygame.font.Font(None, 36)
-        text_small = font_small.render('Click anywhere to start', True, WHITE)
-        text_rect_small = text_small.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
-        screen.blit(text_small, text_rect_small)
+        screen.blit(font_small.render('Click anywhere to start', True, WHITE), font_small.render('Click anywhere to start', True, WHITE).get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50)))
 
-# ---------- GAME RESTART FUNCTION ----------
 def restart_game():
-    global player, enemy1
+    global player, enemy1, roof_restored, boss_fight_active, boss, particles, enemy1_dead_handled
+    global well_img, well2_img, boss_env_suppressed, middle_platforms_visible, waiting_for_reentry
+    global vertical_platforms_active, vertical_platforms
+    
+    # Reset player
     player = Player('player', 200, 200, 3, 5)
-    enemy1 = Enemy1(800, 500, 2, 2)
+    
+    # If we were in boss fight, reset to original room state
+    if boss_fight_active or boss_env_suppressed:
+        # Reset enemy1 to alive
+        enemy1 = Enemy1(800, 500, 2, 2)
+        enemy1_dead_handled = False
+        
+        # Restore normal background
+        boss_env_suppressed = False
+        waiting_for_reentry = False
+        
+        # Restore well images
+        well_img = load_img('img/BG/well1.png', (WELL_WIDTH, WELL_HEIGHT))
+        well2_img = load_img('img/BG/well2.png', (WELL_WIDTH, WELL_HEIGHT))
+        
+        # Reset platforms to original state
+        try:
+            # Remove vertical platforms if they exist
+            remove_vertical_platforms()
+            
+            # Add back middle platforms if they were removed
+            if middle_ground_platform not in platform_group:
+                platform_group.add(middle_ground_platform)
+            if middle_roof_platform not in platform_group:
+                platform_group.add(middle_roof_platform)
+            
+            middle_platforms_visible = True
+        except:
+            pass
+    
+    roof_restored = False
+    boss_fight_active = False
+    boss = None
+    particles = []
 
 # ---------- MAIN LOOP ----------
-player = Player('player', 200, 200, 3, 5)
-enemy1 = Enemy1(800, 500, 2, 2)
-
-# Game state
-game_state = 'menu'  # 'menu' or 'playing'
+player, enemy1, game_state = Player('player', 200, 200, 3, 5), Enemy1(800, 500, 2, 2), 'menu'
+boss_projectiles = []
 
 run = True
 while run:
@@ -820,75 +895,163 @@ while run:
     if game_state == 'menu':
         draw_main_menu()
     elif game_state == 'playing':
-        draw_bg()  # Now much faster!
+        # Background
+        if waiting_for_reentry or boss_env_suppressed:
+            screen.fill((0, 0, 0))
+            
+            for platform in platform_group:
+                screen.blit(platform.image, platform.rect)
+        else:
+            draw_bg()
+            if not enemy1.alive and not boss_env_suppressed and well_img:
+                draw_well()
 
+        # Update and draw particles
+        particles = [p for p in particles if p.update()]
+        for p in particles:
+            p.draw()
+
+        # Boss fight logic
+        if boss_fight_active and boss and boss.alive:
+            new_projectiles = boss.update(player)
+            boss_projectiles.extend(new_projectiles)
+            
+            # Update clones
+            if boss.clones_active:
+                new_clones = []
+                for clone in boss.clones:
+                    clone_projectiles, still_alive = clone.update(player)
+                    boss_projectiles.extend(clone_projectiles)
+                    if still_alive:
+                        new_clones.append(clone)
+                boss.clones = new_clones
+            
+            # Update projectiles
+            new_projectiles = []
+            for proj in boss_projectiles:
+                if proj.update():
+                    # Check collision with player
+                    if player.alive and proj.rect.colliderect(player.rect):
+                        player.take_damage(1)
+                        create_particles(proj.x, proj.y, proj.color, 10)
+                    else:
+                        new_projectiles.append(proj)
+            boss_projectiles = new_projectiles
+            
+            # Check player attack on boss
+            if player.attacking and player.attack_rect and boss.alive:
+                if player.attack_rect.colliderect(boss.rect):
+                    boss.take_damage(ATTACK_DAMAGE)
+                    if player.attack_type == 'down' and player.vel_y >= 0:
+                        player.vel_y = -15
+                    player.attack_rect = None
+            
+            # Check player attack on clones
+            if player.attacking and player.attack_rect and boss.clones_active:
+                for clone in boss.clones[:]:
+                    if player.attack_rect.colliderect(clone.rect):
+                        boss.clones.remove(clone)
+                        create_particles(clone.x, clone.y, clone.color, 20)
+                        player.attack_rect = None
+                        break
+            
+            # Draw boss
+            boss.draw()
+            
+            # Draw clones
+            if boss.clones_active:
+                for clone in boss.clones:
+                    clone.draw()
+            
+            # Draw projectiles
+            for proj in boss_projectiles:
+                proj.draw()
+
+        # Player
         player.update_animation()
         player.draw()
 
+        if not enemy1.alive and not boss_env_suppressed and well2_img:
+            draw_well_front()
+
         if player.alive:
             if player.attacking:
-                if player.attack_type == 'up':
-                    player.update_action(6)
-                elif player.attack_type == 'down':
-                    player.update_action(7)
-                else:
-                    player.update_action(5)
+                player.update_action(6 if player.attack_type == 'up' else 7 if player.attack_type == 'down' else 5)
             elif player.dashing:
                 player.update_action(4)
             elif player.wall_sliding:
-                # Use idle animation for wall sliding (could be a dedicated wall slide animation)
                 player.update_action(0)
             elif player.in_air:
-                if player.vel_y < 0:
-                    player.update_action(2)
-                else:
-                    player.update_action(3)
+                player.update_action(2 if player.vel_y < 0 else 3)
             elif moving_left or moving_right:
                 player.update_action(1)
             else:
                 player.update_action(0)
-
             player.move(moving_left, moving_right)
 
-        # Update enemy1
-        if enemy1.alive:
-            enemy1.ai_behavior(player)
-            enemy1.draw()
-            draw_enemy1_health_bar(enemy1)  # Draw enemy1 health bar
+        # Enemy (only when not in boss fight)
+        if not boss_fight_active:
+            if enemy1.alive:
+                enemy1.ai_behavior(player)
+                enemy1.draw()
+                draw_enemy1_health_bar(enemy1)
+            else:
+                if not enemy1_dead_handled:
+                    enemy1_dead()
+                    enemy1_dead_handled = True
+            
+            check_combat(player, enemy1)
         
-        # Check combat
-        check_combat(player, enemy1)
-        
-        # Draw health masks instead of health bars
+        if vertical_platforms_active:
+            for vp in vertical_platforms:
+                screen.blit(vp.image, getattr(vp, '_visual_rect', vp.rect))
+
         draw_health_masks(player.current_masks, player.max_masks)
         
-        # Check if player died and restart game
         if not player.alive:
             restart_game()
+            
+        if waiting_for_reentry:
+            if waiting_for_reentry_counter > 0:
+                waiting_for_reentry_counter -= 1
+            elif player.rect.top >= 0 and not roof_restored:
+                try:
+                    if middle_roof_platform not in platform_group:
+                        platform_group.add(middle_roof_platform)
+                    roof_restored = True
+                except: pass
+                waiting_for_reentry, waiting_for_reentry_counter = False, 0
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             run = False
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_a:
-                moving_left = True
-            if event.key == pygame.K_d:
-                moving_right = True
-            if event.key == pygame.K_BACKSPACE:
-                run = False
-        if event.type == pygame.KEYUP:
-            if event.key == pygame.K_a:
-                moving_left = False
-            if event.key == pygame.K_d:
-                moving_right = False
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:
-                if game_state == 'menu':
-                    # Start game on click
-                    game_state = 'playing'
-                    restart_game()
-                elif game_state == 'playing':
-                    player.attack()
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_a: moving_left = True
+            elif event.key == pygame.K_d: moving_right = True
+            elif event.key == pygame.K_LEFTBRACKET:
+                DEBUG_HITBOXES = not DEBUG_HITBOXES
+                print(f"DEBUG_HITBOXES={DEBUG_HITBOXES}")
+            elif event.key == pygame.K_ESCAPE: run = False
+            elif event.key == pygame.K_RIGHTBRACKET:
+                enemy1.health, enemy1.alive = 0, False
+        elif event.type == pygame.KEYUP:
+            if event.key == pygame.K_a: moving_left = False
+            elif event.key == pygame.K_d: moving_right = False
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if game_state == 'menu':
+                game_state = 'playing'
+                restart_game()
+            elif game_state == 'playing':
+                player.attack()
+
+    if DEBUG_HITBOXES and game_state == 'playing':
+        for plat in platform_group:
+            pygame.draw.rect(screen, (255, 0, 0), plat.rect, 2)
+        pygame.draw.rect(screen, (255, 0, 0), player.rect, 2)
+        if enemy1:
+            pygame.draw.rect(screen, (255, 0, 0), enemy1.rect, 2)
+        if boss and boss.alive:
+            pygame.draw.rect(screen, (255, 0, 0), boss.rect, 2)
 
     pygame.display.update()
 
